@@ -52,6 +52,9 @@ jobs:
       - attach_workspace:
           at: .
       - run:
+          name: Create test results directory
+          command: mkdir -p test-results
+      - run:
           name: Run tests with coverage
           command: npm run test:coverage
       - store_test_results:
