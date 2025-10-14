@@ -55,7 +55,10 @@ jobs:
           name: Run tests with coverage
           command: npm run test:coverage
       - store_test_results:
-          path: ./coverage
+          path: ./test-results
+      - store_artifacts:
+          path: ./test-results
+          destination: test-results
       - store_artifacts:
           path: ./coverage
           destination: coverage
