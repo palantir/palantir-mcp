@@ -91,7 +91,7 @@ jobs:
           at: .
       - run:
           name: Authenticate with npm
-          command: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          command: echo "//registry.npmjs.org/:_authToken=${NPM_AUTH_TOKEN}" > ~/.npmrc
       - run:
           name: Publish to npm
           command: npm publish --access public
