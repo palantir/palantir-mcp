@@ -16,6 +16,7 @@ lerna-debug.log*
 
 # Testing
 coverage/
+test-results/
 .nyc_output
 
 # IDE
