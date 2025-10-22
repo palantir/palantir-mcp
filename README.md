@@ -24,6 +24,12 @@ This tool provides a streamlined way to access and run Palantir's Model Context 
 - Valid Foundry instance access
 - Foundry user token with appropriate permissions
 
+#### MCP Inspector
+
+```bash
+npx -y mcp-inspect
+```
+
 #### Cursor
 
 [![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=palantir-mcp&config=eyJtY3BTZXJ2ZXJzIjp7InBhbGFudGlyLW1jcCI6eyJ0eXBlIjoic3RkaW8iLCJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInBhbGFudGlyLW1jcCIsIi0tZm91bmRyeS1hcGktdXJsIiwiaHR0cHM6Ly9lbnJvbGxtZW50LnBhbGFudGlyZm91bmRyeS5jb20iXSwiZW52Ijp7IkZPVU5EUllfVE9LRU4iOiI8dG9rZW4%2BIn19fX0%3D)

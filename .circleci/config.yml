@@ -90,6 +90,11 @@ jobs:
       - attach_workspace:
           at: .
       - run:
+          name: Set version from git tag
+          command: |
+            TAG=${CIRCLE_TAG}
+            npm version $TAG --no-git-tag-version --allow-same-version
+      - run:
           name: Authenticate with npm
           command: echo "//registry.npmjs.org/:_authToken=${NPM_AUTH_TOKEN}" > ~/.npmrc
       - run:

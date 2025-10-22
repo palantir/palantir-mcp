@@ -1,6 +1,5 @@
 {
   "name": "palantir-mcp",
-  "version": "0.1.0",
   "description": "A lightweight open-source MCP wrapper for downloading and installing the @palantir/mcp package from secure Foundry environments.",
   "type": "module",
   "bin": {
