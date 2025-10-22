@@ -97,11 +97,11 @@ jobs:
           command: npm publish --access public
   circle-all:
     docker:
-    - image: busybox:1.34.1
+      - image: busybox:1.34.1
     resource_class: small
     steps:
-    - run:
-        command: echo "All required jobs finished successfully"
+      - run:
+          command: echo "All required jobs finished successfully"
 
 workflows:
   version: 2
@@ -157,11 +157,11 @@ workflows:
           context: npm-publish
       - circle-all:
           requires:
-          - lint
-          - test
-          - install-dependencies
-          - build
-          - typecheck
+            - lint
+            - test
+            - install-dependencies
+            - build
+            - typecheck
           filters:
             tags:
               only: /.*/
