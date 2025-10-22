@@ -24,15 +24,30 @@ This tool provides a streamlined way to access and run Palantir's Model Context 
 - Valid Foundry instance access
 - Foundry user token with appropriate permissions
 
-#### MCP Inspector
+### MCP Inspector
 
-```bash
-npx -y mcp-inspect
+Test the palantir-mcp using the mcp-inspector package.
+
+```sh
+npx @modelcontextprotocol/inspector npx -y palantir-mcp --foundry-api-url https://swirl.palantirfoundry.com
 ```
 
-#### Cursor
+### Claude Code
 
-[![Install MCP Server](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=palantir-mcp&config=eyJtY3BTZXJ2ZXJzIjp7InBhbGFudGlyLW1jcCI6eyJ0eXBlIjoic3RkaW8iLCJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInBhbGFudGlyLW1jcCIsIi0tZm91bmRyeS1hcGktdXJsIiwiaHR0cHM6Ly9lbnJvbGxtZW50LnBhbGFudGlyZm91bmRyeS5jb20iXSwiZW52Ijp7IkZPVU5EUllfVE9LRU4iOiI8dG9rZW4%2BIn19fX0%3D)
+```bash
+# Replace the below with your Foundry URL
+export FOUNDRY_HOST="<enrollment>.palantirfoundry.com"
+
+# Replace the below with your Foundry Token
+export FOUNDRY_TOKEN=<token>
+
+claude mcp add palantir-mcp \
+    --scope user \
+    -e FOUNDRY_TOKEN=$FOUNDRY_TOKEN \
+    -- npx "-y" "palantir-mcp" "--foundry-api-url" "https://$FOUNDRY_HOST"
+```
+
+### Cursor
 
 ```json
 {
@@ -44,28 +59,66 @@ npx -y mcp-inspect
         "-y",
         "palantir-mcp",
         "--foundry-api-url",
-        "https://<enrollment>.palantirfoundry.com"
+        "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
       ],
       "env": {
-        "FOUNDRY_TOKEN": "<token>"
+        "FOUNDRY_TOKEN": "<token>" // Replace with your Foundry Token
       }
     }
   }
 }
 ```
 
-## Usage
+### VS Code Copilot
 
-```bash
-# Run with command line arguments
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com --foundry-token <your-token>
+```json
+"mcp": {
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "foundry-token",
+            "description": "Foundry user token",
+            "password": true
+        }
+    ],
+    "servers": {
+        "Palantir": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "-y",
+                "palantir-mcp",
+                "--foundry-api-url",
+                "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
+            ],
+            "env": {
+                "FOUNDRY_TOKEN": "${input:foundry-token}"
+            }
+        }
+    }
+}
+```
 
-# Or use environment variable for token
-export FOUNDRY_TOKEN=<your-token>
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com
+### Cline
 
-# Pass additional arguments to the underlying MCP server
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com --foundry-token <your-token> -- [additional args]
+```json
+{
+  "mcpServers": {
+    "palantir-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "palantir-mcp",
+        "--foundry-api-url",
+        "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
+      ],
+      "env": {
+        "FOUNDRY_TOKEN": "<token>" // Replace with your Foundry Token
+      },
+      "disabled": false
+    }
+  }
+}
 ```
 
 ## Development
