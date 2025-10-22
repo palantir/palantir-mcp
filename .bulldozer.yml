@@ -3,9 +3,9 @@
 version: 1
 merge:
   trigger:
-    labels: ["merge when ready"]
+    labels: ['merge when ready']
   ignore:
-    labels: ["do not merge"]
+    labels: ['do not merge']
   method: squash
   options:
     squash:
@@ -14,4 +14,4 @@ merge:
   delete_after_merge: true
 update:
   trigger:
-    labels: ["update me"]
+    labels: ['update me']
