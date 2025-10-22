@@ -2,11 +2,11 @@
 
 auto-label:
   names:
-    versions-props/upgrade-all: ['merge when ready']
-    circleci/manage-circleci: ['merge when ready']
+    versions-props/upgrade-all: [ "merge when ready" ]
+    circleci/manage-circleci: [ "merge when ready" ]
   tags:
-    donotmerge: ['do not merge']
-    roomba: ['merge when ready', '🤖 fix nits']
-    automerge: ['merge when ready', '🤖 fix nits']
-    standards: ['merge when ready', '🤖 fix nits']
-    autorelease: ['autorelease']
+    donotmerge: [ "do not merge" ]
+    roomba: [ "merge when ready", "🤖 fix nits" ]
+    automerge: [ "merge when ready", "🤖 fix nits" ]
+    standards: [ "merge when ready", "🤖 fix nits" ]
+    autorelease: [ "autorelease" ]
