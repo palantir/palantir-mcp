@@ -31,7 +31,14 @@ Test the palantir-mcp using the mcp-inspector package.
 ```sh
 # Replace the below with your Foundry URL
 export FOUNDRY_HOST="<enrollment>.palantirfoundry.com"
-npx @modelcontextprotocol/inspector npx -y palantir-mcp --foundry-api-url https://$FOUNDRY_HOST
+
+# Replace the below with your Foundry Token
+export FOUNDRY_TOKEN=<token>
+
+npx @modelcontextprotocol/inspector \
+  npx -y palantir-mcp \
+  --foundry-api-url \
+  https://$FOUNDRY_HOST
 ```
 
 ### Claude Code
