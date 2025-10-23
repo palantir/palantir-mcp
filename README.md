@@ -29,7 +29,9 @@ This tool provides a streamlined way to access and run Palantir's Model Context 
 Test the palantir-mcp using the mcp-inspector package.
 
 ```sh
-npx @modelcontextprotocol/inspector npx -y palantir-mcp --foundry-api-url https://swirl.palantirfoundry.com
+# Replace the below with your Foundry URL
+export FOUNDRY_HOST="<enrollment>.palantirfoundry.com"
+npx @modelcontextprotocol/inspector npx -y palantir-mcp --foundry-api-url https://$FOUNDRY_HOST
 ```
 
 ### Claude Code
