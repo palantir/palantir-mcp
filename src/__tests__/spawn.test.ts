@@ -37,7 +37,7 @@ describe('spawn', () => {
 
       expect(mockSpawn).toHaveBeenCalledWith(
         'npx',
-        ['@palantir/mcp@latest', '--help', '--verbose'],
+        ['-y', '@palantir/mcp@latest', '--help', '--verbose'],
         expect.objectContaining({
           stdio: 'inherit',
         }),
