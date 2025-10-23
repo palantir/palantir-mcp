@@ -10,46 +10,116 @@ A lightweight open-source wrapper for downloading and installing the @palantir/m
 
 This tool provides a streamlined way to access and run Palantir's Model Context Protocol (MCP) server from within Foundry environments. It handles authentication, package retrieval, and environment setup automatically.
 
-## Features
+## How It Works
 
-- 🔐 Secure authentication with Foundry tokens
-- 🚀 Automatic package retrieval from Foundry's NPM registry
-- ✅ Comprehensive preflight checks for connectivity and authentication
-- 📦 Zero configuration - just provide your Foundry URL and token
-- 🧪 Well-tested with 87%+ code coverage
-- ⚡ Built with TypeScript for type safety
+1. **Preflight Checks**: Validates Node.js version, network connectivity to Foundry, and token authentication
+2. **Registry Setup**: Configures NPM to use Foundry's internal package registry
+3. **Package Execution**: Downloads and runs the latest @palantir/mcp package from your secure Foundry environment with your provided arguments
 
-## Installation
+## 🛠️ Installation
 
-```bash
-npm install -g @palantir/palantir-mcp
-```
-
-## Usage
-
-```bash
-# Run with command line arguments
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com --foundry-token <your-token>
-
-# Or use environment variable for token
-export FOUNDRY_TOKEN=<your-token>
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com
-
-# Pass additional arguments to the underlying MCP server
-palantir-mcp --foundry-api-url https://<enrollment>.palantirfoundry.com --foundry-token <your-token> -- [additional args]
-```
-
-## Requirements
+### Requirements
 
 - Node.js 18 or higher
 - Valid Foundry instance access
 - Foundry user token with appropriate permissions
 
-## How It Works
+### MCP Inspector
 
-1. **Preflight Checks**: Validates Node.js version, network connectivity to Foundry, and token authentication
-2. **Registry Setup**: Configures NPM to use Foundry's internal package registry
-3. **Package Execution**: Downloads and runs the latest @palantir/mcp package with your provided arguments
+Test the palantir-mcp using the mcp-inspector package.
+
+```sh
+npx @modelcontextprotocol/inspector npx -y palantir-mcp --foundry-api-url https://swirl.palantirfoundry.com
+```
+
+### Claude Code
+
+```bash
+# Replace the below with your Foundry URL
+export FOUNDRY_HOST="<enrollment>.palantirfoundry.com"
+
+# Replace the below with your Foundry Token
+export FOUNDRY_TOKEN=<token>
+
+claude mcp add palantir-mcp \
+    --scope user \
+    -e FOUNDRY_TOKEN=$FOUNDRY_TOKEN \
+    -- npx "-y" "palantir-mcp" "--foundry-api-url" "https://$FOUNDRY_HOST"
+```
+
+### Cursor
+
+```json
+{
+  "mcpServers": {
+    "palantir-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "palantir-mcp",
+        "--foundry-api-url",
+        "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
+      ],
+      "env": {
+        "FOUNDRY_TOKEN": "<token>" // Replace with your Foundry Token
+      }
+    }
+  }
+}
+```
+
+### VS Code Copilot
+
+```json
+"mcp": {
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "foundry-token",
+            "description": "Foundry user token",
+            "password": true
+        }
+    ],
+    "servers": {
+        "Palantir": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "-y",
+                "palantir-mcp",
+                "--foundry-api-url",
+                "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
+            ],
+            "env": {
+                "FOUNDRY_TOKEN": "${input:foundry-token}"
+            }
+        }
+    }
+}
+```
+
+### Cline
+
+```json
+{
+  "mcpServers": {
+    "palantir-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "palantir-mcp",
+        "--foundry-api-url",
+        "https://<enrollment>.palantirfoundry.com" // Replace with your Foundry URL
+      ],
+      "env": {
+        "FOUNDRY_TOKEN": "<token>" // Replace with your Foundry Token
+      },
+      "disabled": false
+    }
+  }
+}
+```
 
 ## Development
 
