@@ -15,7 +15,7 @@ export interface SpawnOptions {
 export function spawnMcp({ npmRegistry, foundryToken, args }: SpawnOptions): void {
   const authTokenEnvVar = `NPM_CONFIG_//${npmRegistry.host + npmRegistry.pathname}:_authToken`
 
-  const child = spawn('npx', ['@palantir/mcp@latest', ...args], {
+  const child = spawn('npx', ['-y', '@palantir/mcp@latest', ...args], {
     stdio: 'inherit',
     env: {
       ...process.env,
