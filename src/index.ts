@@ -7,16 +7,30 @@
  */
 
 import { parseArguments } from './command.js'
-import { runPreflightChecks } from './preflightChecks.js'
+import {
+  checkNodeVersion,
+  checkNetworkConnectivity,
+  validateFoundryToken,
+  checkPackageAvailability,
+} from './preflightChecks.js'
 import { buildNpmRegistryUrl } from './registry.js'
 import { spawnMcp } from './spawn.js'
 
 async function main() {
   const { foundryToken, foundryApiUrl } = parseArguments(process.argv)
-  const npmRegistry = buildNpmRegistryUrl(foundryApiUrl)
+  const npmRegistry: URL = buildNpmRegistryUrl(foundryApiUrl)
+
+  let validatedFoundryToken: string
 
   try {
-    await runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)
+    checkNodeVersion()
+    await checkNetworkConnectivity(foundryApiUrl)
+
+    validatedFoundryToken = await validateFoundryToken(foundryApiUrl, foundryToken)
+    // important for child processes spawned later
+    process.env.FOUNDRY_TOKEN = validatedFoundryToken
+
+    await checkPackageAvailability(npmRegistry, validatedFoundryToken)
   } catch (error) {
     console.error(error)
     process.exit(1)
@@ -24,7 +38,7 @@ async function main() {
 
   spawnMcp({
     npmRegistry,
-    foundryToken,
+    foundryToken: validatedFoundryToken,
     args: process.argv.slice(2),
   })
 }
