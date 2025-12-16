@@ -4,6 +4,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+import { TokenRefreshUtils } from '@auth/tokenRefreshUtils.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'
@@ -145,24 +146,30 @@ describe('preflightChecks', () => {
       // Mock expired token
       mockGetTokenTimeToLiveInSeconds.mockResolvedValueOnce(100)
 
-      // Mock all polling attempts to fail (simulates timeout)
-      mockRetrieveToken.mockRejectedValue(new Error('Not ready yet'))
+      // Mock refreshTokenIfExpired to throw timeout error
+      const mockRefreshTokenIfExpired = vi
+        .fn()
+        .mockRejectedValue(new Error('Token retrieval timed out'))
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
 
       await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
         'Token retrieval timed out',
       )
-    }, 10000) // 10 second timeout
+    })
 
     it('should handle browser opening failure during refresh', async () => {
       // Mock expired token
       mockGetTokenTimeToLiveInSeconds.mockResolvedValueOnce(100)
 
-      // Mock browser opening failure
-      vi.doMock('child_process', () => ({
-        exec: vi.fn((_command, callback) => {
-          callback(new Error('Browser failed to open'))
-        }),
-      }))
+      // Mock refreshTokenIfExpired to throw browser error
+      const mockRefreshTokenIfExpired = vi
+        .fn()
+        .mockRejectedValue(new Error('Browser failed to open'))
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
 
       await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
         'Browser failed to open',
