@@ -14,9 +14,17 @@ jobs:
     executor: node-executor
     steps:
       - checkout
-      - node/install-packages:
-          pkg-manager: npm
-          cache-path: ~/.npm
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "package-lock.json" }}
+            - v1-dependencies-
+      - run:
+          name: Install dependencies with optional packages
+          command: npm ci --include=optional
+      - save_cache:
+          paths:
+            - ~/.npm
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
       - persist_to_workspace:
           root: .
           paths:
