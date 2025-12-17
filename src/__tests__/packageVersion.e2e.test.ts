@@ -4,6 +4,27 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+/**
+ * End-to-end test for package version functionality.
+ *
+ * This test validates the complete workflow:
+ * 1. Sets a test version in package.json
+ * 2. Builds the project (bundling the version lookup code)
+ * 3. Packs into an npm tarball
+ * 4. Installs the package globally
+ * 5. Tests that `--version` flag returns the correct version
+ * 6. Tests that the version appears in user agent strings
+ *
+ * Cleanup steps ensure the test doesn't leave artifacts:
+ * - Uninstalls the globally installed test package
+ * - Removes the generated tarball file
+ * - Restores the original package.json version
+ * - Cleans up built files (dist/)
+ *
+ * This ensures the version system works end-to-end as it will
+ * in production when CircleCI publishes with real version numbers.
+ */
+
 import { execSync } from 'child_process'
 import { existsSync, unlinkSync } from 'fs'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
@@ -17,14 +38,19 @@ describe('Package Version E2E', () => {
   beforeAll(() => {
     // Save original package.json version
     try {
-      originalPackageJson = execSync(
-        'node -p "JSON.stringify(require(\'./package.json\').version)"',
-        {
+      const pkg = JSON.parse(
+        execSync('node -p "JSON.stringify(require(\'./package.json\'))"', {
           encoding: 'utf8',
-        },
-      ).trim()
+        }),
+      )
+      originalPackageJson = pkg.version ? JSON.stringify(pkg.version) : 'null'
     } catch {
       originalPackageJson = 'null'
+    }
+
+    // Save original package-lock.json if it exists
+    if (existsSync('package-lock.json')) {
+      execSync('cp package-lock.json package-lock.json.backup', { stdio: 'pipe' })
     }
 
     // Set test version
@@ -58,17 +84,23 @@ describe('Package Version E2E', () => {
     // Restore original package.json version
     if (originalPackageJson !== 'null') {
       const version = JSON.parse(originalPackageJson)
-      if (version) {
-        execSync(`npm version ${version} --no-git-tag-version --allow-same-version`, {
-          stdio: 'pipe',
-        })
-      }
+      execSync(`npm version ${version} --no-git-tag-version --allow-same-version`, {
+        stdio: 'pipe',
+      })
     } else {
       // Remove version if it didn't exist originally
       execSync(
-        "node -e \"const pkg = require('./package.json'); delete pkg.version; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2))\"",
+        "node -e \"const pkg = require('./package.json'); delete pkg.version; require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n')\"",
         { stdio: 'pipe' },
       )
+    }
+
+    // Restore original package-lock.json if it was backed up
+    if (existsSync('package-lock.json.backup')) {
+      execSync('mv package-lock.json.backup package-lock.json', { stdio: 'pipe' })
+    } else if (existsSync('package-lock.json')) {
+      // Remove package-lock.json if it didn't exist originally
+      unlinkSync('package-lock.json')
     }
 
     // Clean up built files
