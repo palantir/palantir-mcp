@@ -5,7 +5,6 @@
  */
 
 import { Command, InvalidArgumentError, Option } from 'commander'
-import { getPackageVersion } from './utils/packageInfo.js'
 
 export interface CliOptions {
   foundryToken: string
@@ -24,8 +23,6 @@ export function parseUrl(value: string): URL {
 
 export function createProgram(): Command {
   const program = new Command()
-
-  program.version(getPackageVersion())
 
   const foundryApiUrlOption = new Option(
     '--foundry-api-url <url>',
