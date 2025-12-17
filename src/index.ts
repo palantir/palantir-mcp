@@ -15,13 +15,10 @@ import {
 } from './preflightChecks.js'
 import { buildNpmRegistryUrl } from './registry.js'
 import { spawnMcp } from './spawn.js'
-import { getPackageVersion } from './utils/packageInfo.js'
 
 async function main() {
   const { foundryToken, foundryApiUrl } = parseArguments(process.argv)
   const npmRegistry: URL = buildNpmRegistryUrl(foundryApiUrl)
-
-  console.log('package verson:', getPackageVersion())
 
   let validatedFoundryToken: string
 

@@ -7,7 +7,6 @@
 import { ConjureError, isConjureError } from 'conjure-client'
 
 export function isInvalidAuthTokenSignature(error: unknown): boolean {
-  console.error('Error retrieving token:', error)
   if (isConjureError(error)) {
     const conjureError: ConjureError<any> = error
 
