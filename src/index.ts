@@ -15,10 +15,13 @@ import {
 } from './preflightChecks.js'
 import { buildNpmRegistryUrl } from './registry.js'
 import { spawnMcp } from './spawn.js'
+import { getPackageVersion } from './utils/packageInfo.js'
 
 async function main() {
   const { foundryToken, foundryApiUrl } = parseArguments(process.argv)
   const npmRegistry: URL = buildNpmRegistryUrl(foundryApiUrl)
+
+  console.log('package verson:', getPackageVersion())
 
   let validatedFoundryToken: string
 
@@ -35,7 +38,7 @@ async function main() {
     await checkPackageAvailability(npmRegistry, validatedFoundryToken)
     console.debug('Package @palantir/mcp is available in the registry.')
   } catch (error) {
-    console.error(error)
+    console.error(error) // TODO should this be a console.log to expose in Claude Code?
     process.exit(1)
   }
 

@@ -5,7 +5,7 @@
  */
 
 import { NetworkError, NodeVersionError, PackageFetchError } from './errors.js'
-import { TokenRefreshUtils } from './tokenRefreshUtils.js'
+import { TokenRefreshUtils } from './utils/tokenRefreshUtils.js'
 
 export function checkNodeVersion(): void {
   const nodeVersion = process.versions.node

@@ -9,6 +9,7 @@ import crypto from 'crypto'
 import { AuthoringApi } from '@api/authoringApi.js'
 import { HttpRequestContext } from '@api/httpRequestContext.js'
 import { MultipassApi } from '@api/multipassApi.js'
+import { isTokenExpired, retrieveTokenFromSecret } from './authTokenUtils.js'
 
 /**
  * Simple token refresh utilities for LocalDevelopmentConfig
@@ -16,6 +17,7 @@ import { MultipassApi } from '@api/multipassApi.js'
 export class TokenRefreshUtils {
   private readonly authoringApi: AuthoringApi
   private readonly multipassApi: MultipassApi
+  private static MINIMUM_TOKEN_TTL = 300
 
   constructor(
     private readonly apiUrl: URL,
@@ -31,7 +33,7 @@ export class TokenRefreshUtils {
    * @returns Promise that resolves to the new token, or undefined if refresh failed
    */
   async refreshTokenIfExpired(): Promise<string | undefined> {
-    const isExpired = await this.multipassApi.isTokenExpired()
+    const isExpired = await isTokenExpired(this.multipassApi, TokenRefreshUtils.MINIMUM_TOKEN_TTL)
     if (!isExpired) {
       // token is not expired
       return
@@ -92,7 +94,7 @@ export class TokenRefreshUtils {
     const maxAttempts = timeoutSeconds
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const token: string | undefined = await this.authoringApi.retrieveToken(secret)
+      const token: string | undefined = await retrieveTokenFromSecret(secret, this.authoringApi)
 
       if (token) {
         console.debug('Got token', token)

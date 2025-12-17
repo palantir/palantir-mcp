@@ -4,7 +4,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { TokenRefreshUtils } from 'src/tokenRefreshUtils.js'
+import { TokenRefreshUtils } from 'src/utils/tokenRefreshUtils.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'

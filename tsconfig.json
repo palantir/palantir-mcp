@@ -21,6 +21,6 @@
       "@auth/*": ["src/auth/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "src/utils/.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -50,6 +50,7 @@ export class AuthenticationError extends McpError {
 export class InvalidAuthTokenError extends McpError {
   constructor(foundryHostname: string) {
     super(
+      // TODO: message should say "This token was not provisioned by X environment, it may either be malformed or it was privisioned for a different iunstance of Foundry."
       `You have provided a malformed authentication token. Please generate a new one at https://${foundryHostname}/workspace/settings/tokens.`,
     )
     this.name = 'InvalidAuthTokenError'

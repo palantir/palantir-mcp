@@ -5,6 +5,7 @@
  */
 
 import { FetchBridge, IHttpEndpointOptions, MediaType } from 'conjure-client'
+import { getPackageVersion } from '../utils/packageInfo.js'
 import { HttpRequestContext } from './httpRequestContext.js'
 
 export class BaseApi {
@@ -20,8 +21,8 @@ export class BaseApi {
       token: () => context.token,
       userAgent: {
         // TODO(acapras);
-        productName: 'com.palantir.mcp-server',
-        productVersion: '0.2.0',
+        productName: 'com.palantir.palantir-mcp-cli',
+        productVersion: getPackageVersion(),
       },
     })
   }
