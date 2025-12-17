@@ -8,24 +8,46 @@ import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 
+/**
+ * Gets the version from the package.json file.
+ *
+ * During development, reads from the local package.json.
+ * When published as an npm package, reads from the package.json
+ * that gets set by CircleCI during the publish process.
+ *
+ * To test locally:
+ * 1. npm version 1.2.3-test --no-git-tag-version
+ * 2. npm run build
+ * 3. npm pack
+ * 4. npm install -g ./palantir-mcp-1.2.3-test.tgz
+ * 5. Test with: palantir-mcp --foundry-api-url https://test.com --foundry-token dummy
+ */
 export function getPackageVersion(): string {
   try {
-    // Get the current file's directory in ES modules
     const __filename = fileURLToPath(import.meta.url)
-    let currentDir = dirname(__filename)
+    const currentDir = dirname(__filename)
 
-    // Walk up directories to find package.json
-    for (let i = 0; i < 5; i++) {
+    // When bundled, we need to find the package root by looking for package.json
+    // Try different levels up the directory tree
+    const attempts = [
+      // For bundled code: dist/index.js -> ../package.json
+      join(currentDir, '../package.json'),
+      // For unbundled dev code: src/utils/packageInfo.js -> ../../package.json
+      join(currentDir, '../../package.json'),
+      join(currentDir, '../../../package.json'),
+      // In case of different bundling: try current directory
+      join(currentDir, 'package.json'),
+    ]
+
+    for (const packagePath of attempts) {
       try {
-        const packagePath = join(currentDir, 'package.json')
         const pkg = JSON.parse(readFileSync(packagePath, 'utf8'))
         if (pkg.version) {
           return pkg.version
         }
       } catch {
-        // Continue searching
+        // Continue to next attempt
       }
-      currentDir = dirname(currentDir)
     }
 
     return '0.0.0-dev'
