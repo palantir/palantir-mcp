@@ -4,51 +4,60 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+import { FetchBridge, IHttpEndpointOptions, MediaType } from 'conjure-client'
+import { HttpRequestContext } from './httpRequestContext.js'
+
 export class BaseApi {
+  private readonly fetchBridge: FetchBridge
+
   constructor(
-    private readonly foundryHostname: string,
-    private readonly baseApiPath: string,
-  ) {}
-
-  async get(path: string, authToken: string): Promise<Response> {
-    const response: Response = await this.wrappedFetch('GET', path, authToken)
-
-    return response
+    readonly context: HttpRequestContext,
+    readonly baseApiPath: string,
+    private readonly serviceName: string,
+  ) {
+    this.fetchBridge = new FetchBridge({
+      baseUrl: `https://${context.apiUrl.hostname}/${baseApiPath}`,
+      token: () => context.token,
+      userAgent: {
+        // TODO(acapras);
+        productName: 'com.palantir.mcp-server',
+        productVersion: '0.2.0',
+      },
+    })
   }
 
-  async post(path: string, body: string, authToken: string): Promise<Response> {
-    const response: Response = await this.wrappedFetch('POST', path, authToken, body)
-
-    return response
+  async get<T>(endpointPath: string, endpointName: string): Promise<T> {
+    return this.call(endpointPath, endpointName, 'GET')
   }
 
-  private async wrappedFetch(
+  async post<T>(endpointPath: string, endpointName: string, data: any): Promise<T> {
+    return this.call(endpointPath, endpointName, 'POST', data)
+  }
+
+  private async call<T>(
+    endpointPath: string,
+    endpointName: string,
     method: 'GET' | 'POST',
-    path: string,
-    authToken: string,
-    body?: string,
-  ): Promise<Response> {
-    const headers = new Headers()
-    headers.append('Content-Type', 'application/json')
-    headers.append('Authorization', `Bearer ${authToken}`)
-
-    const requestOptions: RequestInit = {
-      method: method,
-      headers: headers,
-      ...(body ? { body } : {}),
+    data = null,
+  ): Promise<T> {
+    const httpCallData: IHttpEndpointOptions = {
+      serviceName: this.serviceName,
+      endpointPath,
+      endpointName,
+      method,
+      requestMediaType: MediaType.APPLICATION_JSON,
+      responseMediaType: MediaType.APPLICATION_JSON,
+      pathArguments: [],
+      queryArguments: {},
+      data,
     }
 
-    try {
-      const response: Response = await fetch(this.constructUrl(path), requestOptions)
+    console.debug(`Making ${method} request to ${endpointPath}...`)
 
-      return response
-    } catch (e) {
-      console.error(e)
-      throw e
-    }
-  }
+    const response = await this.fetchBridge.callEndpoint(httpCallData)
 
-  private constructUrl(path: string) {
-    return `https://${this.foundryHostname}/${this.baseApiPath}/${path}`
+    console.debug(`Received response from ${endpointPath}`, response)
+
+    return response as T
   }
 }

@@ -4,8 +4,8 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { TokenRefreshUtils } from './auth/tokenRefreshUtils.js'
 import { NetworkError, NodeVersionError, PackageFetchError } from './errors.js'
+import { TokenRefreshUtils } from './tokenRefreshUtils.js'
 
 export function checkNodeVersion(): void {
   const nodeVersion = process.versions.node
@@ -30,9 +30,10 @@ export async function validateFoundryToken(
   foundryApiUrl: URL,
   foundryToken: string,
 ): Promise<string> {
-  const tokenRefreshUtils: TokenRefreshUtils = new TokenRefreshUtils(foundryApiUrl)
-
-  const newToken: string | undefined = await tokenRefreshUtils.refreshTokenIfExpired(foundryToken)
+  const newToken: string | undefined = await new TokenRefreshUtils(
+    foundryApiUrl,
+    foundryToken,
+  ).refreshTokenIfExpired()
 
   return newToken ?? foundryToken
 }

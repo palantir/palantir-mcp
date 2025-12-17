@@ -4,25 +4,42 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+import { isConjureError } from 'conjure-client'
+import { InvalidAuthTokenError } from 'src/errors.js'
 import { BaseApi } from './baseApi.js'
+import { HttpRequestContext } from './httpRequestContext.js'
 
 export class MultipassApi extends BaseApi {
-  constructor(foundryHost: string) {
-    super(foundryHost, 'multipass/api')
+  private static MINIMUM_TOKEN_TTL = 300
+
+  constructor(context: HttpRequestContext) {
+    super(context, 'multipass/api', 'multipassService')
   }
 
-  async getTokenTimeToLiveInSeconds(authToken: string): Promise<number> {
-    const response = await this.get('token/ttl', authToken)
+  public async isTokenExpired(): Promise<boolean> {
+    try {
+      const response = await this.getTokenTimeToLiveInSeconds()
+      console.debug(`Token time to live: ${response} seconds`)
 
-    if (response.ok) {
-      try {
-        const ttlString = await response.text()
-        return parseInt(ttlString, 10)
-      } catch {
-        return 0
+      return response < MultipassApi.MINIMUM_TOKEN_TTL
+    } catch (error: unknown) {
+      if (isConjureError(error)) {
+        const conjureError = error.body as any
+
+        // if we have an invalid JWT, we will not be able to refresh.
+        if (
+          conjureError.errorCode === 'UNAUTHORIZED' &&
+          conjureError.parameters.error === 'INVALID_JWT'
+        ) {
+          throw new InvalidAuthTokenError(this.context.apiUrl.hostname)
+        }
       }
-    }
 
-    throw Error(`Failed to get token TTL: ${response.status} ${response.statusText}`)
+      return true
+    }
+  }
+
+  private async getTokenTimeToLiveInSeconds(): Promise<number> {
+    return this.get('token/ttl', 'getTokenTimeToLiveInSeconds')
   }
 }

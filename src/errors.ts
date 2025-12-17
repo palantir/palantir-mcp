@@ -39,11 +39,20 @@ If you continue to experience issues, please contact your Foundry administrator 
 }
 
 export class AuthenticationError extends McpError {
-  constructor(foundryApiUrl: URL) {
+  constructor(foundryHostname: string) {
     super(
-      `Unable to authenticate with Foundry API with the provided token. Your token may have expired, or you are using an invalid token. You can generate a new token at ${foundryApiUrl.toString()}workspace/settings/tokens.`,
+      `Unable to authenticate with Foundry API with the provided token. Your token may have expired, or you are using an invalid token. You can generate a new token at https://${foundryHostname}/workspace/settings/tokens.`,
     )
     this.name = 'AuthenticationError'
+  }
+}
+
+export class InvalidAuthTokenError extends McpError {
+  constructor(foundryHostname: string) {
+    super(
+      `You have provided a malformed authentication token. Please generate a new one at https://${foundryHostname}/workspace/settings/tokens.`,
+    )
+    this.name = 'InvalidAuthTokenError'
   }
 }
 

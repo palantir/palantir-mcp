@@ -4,7 +4,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { TokenRefreshUtils } from '@auth/tokenRefreshUtils.js'
+import { TokenRefreshUtils } from 'src/tokenRefreshUtils.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'
@@ -118,7 +118,7 @@ describe('preflightChecks', () => {
       mockGetTokenTimeToLiveInSeconds.mockResolvedValueOnce(200)
 
       // Mock successful token refresh flow
-      mockRetrieveToken.mockResolvedValueOnce(JSON.stringify(newToken))
+      mockRetrieveToken.mockResolvedValueOnce(newToken)
 
       const result = await validateFoundryToken(foundryApiUrl, foundryToken)
 
@@ -134,7 +134,7 @@ describe('preflightChecks', () => {
       mockGetTokenTimeToLiveInSeconds.mockRejectedValueOnce(new Error('Token invalid'))
 
       // Mock successful token refresh
-      mockRetrieveToken.mockResolvedValueOnce(JSON.stringify(newToken))
+      mockRetrieveToken.mockResolvedValueOnce(newToken)
 
       const result = await validateFoundryToken(foundryApiUrl, foundryToken)
 
