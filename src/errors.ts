@@ -38,12 +38,10 @@ If you continue to experience issues, please contact your Foundry administrator 
   }
 }
 
-export class AuthenticationError extends McpError {
-  constructor(foundryHostname: string) {
-    super(
-      `Unable to authenticate with Foundry API with the provided token. Your token may have expired, or you are using an invalid token. You can generate a new token at https://${foundryHostname}/workspace/settings/tokens.`,
-    )
-    this.name = 'AuthenticationError'
+export class AuthenticationTimoutError extends McpError {
+  constructor() {
+    super('Token retrieval timed out')
+    this.name = 'AuthenticationTimoutError'
   }
 }
 

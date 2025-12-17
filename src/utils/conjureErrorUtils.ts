@@ -11,10 +11,7 @@ export function isInvalidAuthTokenSignature(error: unknown): boolean {
   if (isConjureError(error)) {
     const conjureError: ConjureError<any> = error
 
-    if (typeof conjureError.body === 'string') {
-      console.debug('Conjure error body as string:', conjureError.body)
-    } else {
-      console.debug('Conjure error body as object:', conjureError.body)
+    if (typeof conjureError.body !== 'string') {
       const conjureErroName = conjureError.body?.errorName
 
       return conjureErroName === 'Authoring:InvalidTokenSignature'

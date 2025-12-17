@@ -9,6 +9,7 @@ import crypto from 'crypto'
 import { AuthoringApi } from '@api/authoringApi.js'
 import { HttpRequestContext } from '@api/httpRequestContext.js'
 import { MultipassApi } from '@api/multipassApi.js'
+import { AuthenticationTimoutError } from 'src/errors.js'
 import { isTokenExpired, retrieveTokenFromSecret } from './authTokenUtils.js'
 
 /**
@@ -38,7 +39,7 @@ export class TokenRefreshUtils {
       // token is not expired
       return
     }
-    console.debug('Token is expired or invalid. Initiating refresh flow...')
+
     const secret = this.generateSecret()
     const authorizationUrl = this.getAuthorizationUrl(secret)
 
@@ -97,13 +98,12 @@ export class TokenRefreshUtils {
       const token: string | undefined = await retrieveTokenFromSecret(secret, this.authoringApi)
 
       if (token) {
-        console.debug('Got token', token)
         return token
       }
 
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
     }
 
-    throw new Error('Token retrieval timed out')
+    throw new AuthenticationTimoutError()
   }
 }

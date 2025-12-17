@@ -52,11 +52,7 @@ export class BaseApi {
       data,
     }
 
-    console.debug(`Making ${method} request to ${endpointPath}...`)
-
     const response: T = await this.fetchBridge.callEndpoint<T>(httpCallData)
-
-    console.debug(`Received response from ${endpointPath}`, response)
 
     return response as T
   }

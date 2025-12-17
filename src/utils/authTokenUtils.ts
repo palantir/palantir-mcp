@@ -15,7 +15,6 @@ export async function isTokenExpired(
 ): Promise<boolean> {
   try {
     const response = await multipassApi.getTokenTimeToLiveInSeconds()
-    console.debug(`Token time to live: ${response} seconds`)
 
     return response < minimumTimeToLive
   } catch (error: unknown) {
@@ -33,8 +32,6 @@ export async function retrieveTokenFromSecret(
   authoringApi: AuthoringApi,
 ): Promise<string | undefined> {
   try {
-    console.debug('Attempting to retrieve token...')
-
     const token: string | undefined = await authoringApi.retrieveToken(secret)
     return token
   } catch (error: unknown) {
