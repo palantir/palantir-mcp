@@ -20,7 +20,6 @@ export class BaseApi {
       baseUrl: `https://${context.apiUrl.hostname}/${baseApiPath}`,
       token: () => context.token,
       userAgent: {
-        // TODO(acapras);
         productName: 'com.palantir.palantir-mcp-cli',
         productVersion: getPackageVersion(),
       },
@@ -28,11 +27,11 @@ export class BaseApi {
   }
 
   async get<T>(endpointPath: string, endpointName: string): Promise<T> {
-    return this.call(endpointPath, endpointName, 'GET')
+    return this.call<T>(endpointPath, endpointName, 'GET')
   }
 
   async post<T>(endpointPath: string, endpointName: string, data: any): Promise<T> {
-    return this.call(endpointPath, endpointName, 'POST', data)
+    return this.call<T>(endpointPath, endpointName, 'POST', data)
   }
 
   private async call<T>(
@@ -55,7 +54,7 @@ export class BaseApi {
 
     console.debug(`Making ${method} request to ${endpointPath}...`)
 
-    const response = await this.fetchBridge.callEndpoint(httpCallData)
+    const response: T = await this.fetchBridge.callEndpoint<T>(httpCallData)
 
     console.debug(`Received response from ${endpointPath}`, response)
 
