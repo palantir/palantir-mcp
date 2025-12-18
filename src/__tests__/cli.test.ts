@@ -36,7 +36,12 @@ describe('CLI', () => {
       const program = createProgram()
       const options = program.options
 
-      expect(options).toHaveLength(2)
+      expect(options).toHaveLength(3)
+
+      const versionOption = options.find((opt) => opt.name() === 'version')
+      expect(versionOption).toBeDefined()
+      expect(versionOption?.required).toBe(false)
+      expect(versionOption?.description).toContain('version')
 
       const apiUrlOption = options.find((opt) => opt.name() === 'foundry-api-url')
       expect(apiUrlOption).toBeDefined()
