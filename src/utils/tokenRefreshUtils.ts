@@ -101,6 +101,8 @@ export class TokenRefreshUtils {
         return token
       }
 
+      console.error('Waiting for user to authenticate in browser...')
+
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
     }
 
