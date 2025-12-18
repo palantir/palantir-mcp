@@ -4,26 +4,40 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import * as client from '@osdk/client'
-import * as foundryAdmin from '@osdk/foundry.admin'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'
 import {
-  AuthenticationError,
-  NetworkError,
-  NodeVersionError,
-  PackageFetchError,
-} from '../errors.js'
-import { runPreflightChecks } from '../preflightChecks.js'
+  checkNodeVersion,
+  checkNetworkConnectivity,
+  validateFoundryToken,
+  checkPackageAvailability,
+} from '../preflightChecks.js'
+import { isTokenExpired } from '../utils/authTokenUtils.js'
+import { TokenRefreshUtils } from '../utils/tokenRefreshUtils.js'
 
-vi.mock('@osdk/client', () => ({
-  createPlatformClient: vi.fn(),
+const mockGetTokenTimeToLiveInSeconds = vi.fn()
+const mockRetrieveToken = vi.fn()
+
+vi.mock('@api/multipassApi.js', () => ({
+  MultipassApi: vi.fn().mockImplementation(() => ({
+    getTokenTimeToLiveInSeconds: mockGetTokenTimeToLiveInSeconds,
+  })),
 }))
 
-vi.mock('@osdk/foundry.admin', () => ({
-  Users: {
-    getCurrent: vi.fn(),
-  },
+vi.mock('@api/authoringApi.js', () => ({
+  AuthoringApi: vi.fn().mockImplementation(() => ({
+    retrieveToken: mockRetrieveToken,
+  })),
+}))
+
+vi.mock('../utils/authTokenUtils.js', () => ({
+  isTokenExpired: vi.fn(),
+  retrieveTokenFromSecret: vi.fn(),
+}))
+
+vi.mock('child_process', () => ({
+  exec: vi.fn((_command, callback) => callback(null)),
 }))
 
 describe('preflightChecks', () => {
@@ -34,9 +48,12 @@ describe('preflightChecks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn()
+    mockGetTokenTimeToLiveInSeconds.mockClear()
+    mockRetrieveToken.mockClear()
+    delete process.env.FOUNDRY_TOKEN
   })
 
-  describe('runPreflightChecks', () => {
+  describe('individual preflight checks', () => {
     it('should pass all preflight checks successfully', async () => {
       const nodeVersion = process.versions.node
       const majorVersion = parseInt(nodeVersion.split('.')[0])
@@ -44,118 +61,125 @@ describe('preflightChecks', () => {
         vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
       }
 
+      // Mock token not expired
+      vi.mocked(isTokenExpired).mockResolvedValueOnce(false)
       ;(global.fetch as any).mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: true })
-      ;(client.createPlatformClient as any).mockReturnValue({})
-      ;(foundryAdmin.Users.getCurrent as any).mockResolvedValue({})
 
-      await expect(
-        runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry),
-      ).resolves.not.toThrow()
+      expect(() => checkNodeVersion()).not.toThrow()
+      await expect(checkNetworkConnectivity(foundryApiUrl)).resolves.not.toThrow()
+      const validatedToken = await validateFoundryToken(foundryApiUrl, foundryToken)
+      expect(validatedToken).toBe(foundryToken)
+      await expect(checkPackageAvailability(npmRegistry, validatedToken)).resolves.not.toThrow()
     })
 
-    it('should throw NodeVersionError for Node version < 18', async () => {
+    it('should throw NodeVersionError for Node version < 18', () => {
       vi.spyOn(process.versions, 'node', 'get').mockReturnValue('16.14.0')
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
-        NodeVersionError,
-      )
+      expect(() => checkNodeVersion()).toThrow(NodeVersionError)
     })
 
     it('should throw NetworkError when cannot reach Foundry API', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
       ;(global.fetch as any).mockRejectedValueOnce(new Error('Network error'))
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
-        NetworkError,
-      )
+      await expect(checkNetworkConnectivity(foundryApiUrl)).rejects.toThrow(NetworkError)
     })
 
     it('should throw NetworkError when Foundry API returns non-OK status', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
       ;(global.fetch as any).mockResolvedValueOnce({ ok: false, status: 404 })
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
-        NetworkError,
-      )
-    })
-
-    it('should throw AuthenticationError for 401 responses', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
-      ;(global.fetch as any).mockResolvedValueOnce({ ok: true })
-      ;(client.createPlatformClient as any).mockReturnValue({})
-      ;(foundryAdmin.Users.getCurrent as any).mockRejectedValue({
-        cause: { statusCode: 401 },
-      })
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
-        AuthenticationError,
-      )
-    })
-
-    it('should throw generic McpError for other API errors', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
-      ;(global.fetch as any).mockResolvedValueOnce({ ok: true })
-      ;(client.createPlatformClient as any).mockReturnValue({})
-      ;(foundryAdmin.Users.getCurrent as any).mockRejectedValue(new Error('Unknown error'))
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
-        'An unexpected error occurred when trying to connect to the Foundry API',
-      )
+      await expect(checkNetworkConnectivity(foundryApiUrl)).rejects.toThrow(NetworkError)
     })
 
     it('should throw PackageFetchError when cannot fetch package', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
-      ;(global.fetch as any)
-        .mockResolvedValueOnce({ ok: true })
-        .mockRejectedValueOnce(new Error('Fetch failed'))
-      ;(client.createPlatformClient as any).mockReturnValue({})
-      ;(foundryAdmin.Users.getCurrent as any).mockResolvedValue({})
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
+      ;(global.fetch as any).mockRejectedValueOnce(new Error('Fetch failed'))
+      await expect(checkPackageAvailability(npmRegistry, foundryToken)).rejects.toThrow(
         PackageFetchError,
       )
     })
 
     it('should throw PackageFetchError when package endpoint returns non-OK status', async () => {
-      const nodeVersion = process.versions.node
-      const majorVersion = parseInt(nodeVersion.split('.')[0])
-      if (majorVersion < 18) {
-        vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
-      }
-
-      ;(global.fetch as any)
-        .mockResolvedValueOnce({ ok: true })
-        .mockResolvedValueOnce({ ok: false, status: 500 })
-      ;(client.createPlatformClient as any).mockReturnValue({})
-      ;(foundryAdmin.Users.getCurrent as any).mockResolvedValue({})
-
-      await expect(runPreflightChecks(foundryApiUrl, foundryToken, npmRegistry)).rejects.toThrow(
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({}),
+      })
+      await expect(checkPackageAvailability(npmRegistry, foundryToken)).rejects.toThrow(
         PackageFetchError,
+      )
+    })
+  })
+
+  describe('validateFoundryToken', () => {
+    it('should return original token when token is not expired', async () => {
+      vi.mocked(isTokenExpired).mockResolvedValueOnce(false)
+
+      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
+
+      expect(result).toBe(foundryToken)
+      expect(vi.mocked(isTokenExpired)).toHaveBeenCalled()
+    })
+
+    it('should refresh token when expired and return new token', async () => {
+      const newToken = 'new-refreshed-token'
+
+      // Mock successful token refresh flow - this will return the new token
+      const mockRefreshTokenIfExpired = vi.fn().mockResolvedValue(newToken)
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
+
+      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
+
+      expect(result).toBe(newToken)
+      expect(mockRefreshTokenIfExpired).toHaveBeenCalled()
+    })
+
+    it('should refresh token when TTL check throws error', async () => {
+      const newToken = 'new-refreshed-token'
+
+      // Mock TTL check failure (treated as expired)
+      vi.mocked(isTokenExpired).mockRejectedValueOnce(new Error('Token invalid'))
+
+      // Mock successful token refresh
+      const mockRefreshTokenIfExpired = vi.fn().mockResolvedValue(newToken)
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
+
+      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
+
+      expect(result).toBe(newToken)
+      expect(mockRefreshTokenIfExpired).toHaveBeenCalled()
+    })
+
+    it('should handle token refresh timeout gracefully', async () => {
+      // Mock expired token
+      vi.mocked(isTokenExpired).mockResolvedValueOnce(true)
+
+      // Mock refreshTokenIfExpired to throw timeout error
+      const mockRefreshTokenIfExpired = vi
+        .fn()
+        .mockRejectedValue(new Error('Token retrieval timed out'))
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
+
+      await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
+        'Token retrieval timed out',
+      )
+    })
+
+    it('should handle browser opening failure during refresh', async () => {
+      // Mock expired token
+      vi.mocked(isTokenExpired).mockResolvedValueOnce(true)
+
+      // Mock refreshTokenIfExpired to throw browser error
+      const mockRefreshTokenIfExpired = vi
+        .fn()
+        .mockRejectedValue(new Error('Browser failed to open'))
+      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
+        mockRefreshTokenIfExpired,
+      )
+
+      await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
+        'Browser failed to open',
       )
     })
   })

@@ -17,7 +17,8 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@api/*": ["src/api/*"],
+      "@auth/*": ["src/auth/*"]
     }
   },
   "include": ["src/**/*"],

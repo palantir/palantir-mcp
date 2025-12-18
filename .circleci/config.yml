@@ -14,9 +14,23 @@ jobs:
     executor: node-executor
     steps:
       - checkout
-      - node/install-packages:
-          pkg-manager: npm
-          cache-path: ~/.npm
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "package-lock.json" }}
+            - v1-dependencies-
+      - run:
+          name: Install dependencies with optional packages
+          command: |
+            # Clear npm cache to avoid issues with optional dependencies
+            npm cache clean --force
+            # Install with explicit optional dependency inclusion
+            npm ci --include=optional --verbose
+            # Force install the specific rollup platform package if it's still missing
+            npm install @rollup/rollup-linux-x64-gnu --save-optional --no-save
+      - save_cache:
+          paths:
+            - ~/.npm
+          key: v1-dependencies-{{ checksum "package-lock.json" }}
       - persist_to_workspace:
           root: .
           paths:

@@ -29,7 +29,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/src',
+      '@api': '/src/api',
+      '@auth': '/src/auth',
     },
   },
 })

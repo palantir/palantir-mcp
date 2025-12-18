@@ -6,13 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  AuthenticationError,
-  McpError,
-  NetworkError,
-  NodeVersionError,
-  PackageFetchError,
-} from '../errors.js'
+import { McpError, NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'
 
 describe('errors', () => {
   describe('NodeVersionError', () => {
@@ -36,19 +30,6 @@ describe('errors', () => {
       expect(error.message).toContain('VPN, firewall settings')
       expect(error.cause).toBe(cause)
       expect(error.name).toBe('NetworkError')
-    })
-  })
-
-  describe('AuthenticationError', () => {
-    it('should create error with token generation URL', () => {
-      const url = new URL('https://example.palantirfoundry.com')
-      const error = new AuthenticationError(url)
-
-      expect(error.message).toContain('Unable to authenticate with Foundry API')
-      expect(error.message).toContain(
-        'https://example.palantirfoundry.com/workspace/settings/tokens',
-      )
-      expect(error.name).toBe('AuthenticationError')
     })
   })
 

@@ -4,38 +4,18 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { createPlatformClient } from '@osdk/client'
-import { Users } from '@osdk/foundry.admin'
+import { NetworkError, NodeVersionError, PackageFetchError } from './errors.js'
+import { TokenRefreshUtils } from './utils/tokenRefreshUtils.js'
 
-import {
-  AuthenticationError,
-  McpError,
-  NetworkError,
-  NodeVersionError,
-  PackageFetchError,
-} from './errors.js'
-
-export async function runPreflightChecks(
-  foundryApiUrl: URL,
-  foundryToken: string,
-  npmRegistry: URL,
-): Promise<void> {
-  checkNodeVersion()
-  await checkNetworkConnectivity(foundryApiUrl)
-  await validateFoundryToken(foundryApiUrl, foundryToken)
-  await checkPackageAvailability(npmRegistry, foundryToken)
-}
-
-function checkNodeVersion(): void {
+export function checkNodeVersion(): void {
   const nodeVersion = process.versions.node
   const majorVersion = parseInt(nodeVersion.split('.')[0])
-
   if (majorVersion < 18) {
     throw new NodeVersionError(nodeVersion)
   }
 }
 
-async function checkNetworkConnectivity(foundryApiUrl: URL): Promise<void> {
+export async function checkNetworkConnectivity(foundryApiUrl: URL): Promise<void> {
   try {
     const resp = await fetch(foundryApiUrl)
     if (!resp.ok) {
@@ -46,33 +26,33 @@ async function checkNetworkConnectivity(foundryApiUrl: URL): Promise<void> {
   }
 }
 
-async function validateFoundryToken(foundryApiUrl: URL, foundryToken: string): Promise<void> {
-  const platformClient = createPlatformClient(foundryApiUrl.toString(), () =>
-    Promise.resolve(foundryToken),
-  )
+export async function validateFoundryToken(
+  foundryApiUrl: URL,
+  foundryToken: string,
+): Promise<string> {
+  const newToken: string | undefined = await new TokenRefreshUtils(
+    foundryApiUrl,
+    foundryToken,
+  ).refreshTokenIfExpired()
 
-  try {
-    await Users.getCurrent(platformClient)
-  } catch (error: any) {
-    if (error.cause?.statusCode === 401) {
-      throw new AuthenticationError(foundryApiUrl)
-    }
-    throw new McpError(
-      `An unexpected error occurred when trying to connect to the Foundry API`,
-      error,
-    )
-  }
+  return newToken ?? foundryToken
 }
 
-async function checkPackageAvailability(npmRegistry: URL, foundryToken: string): Promise<void> {
+export async function checkPackageAvailability(
+  npmRegistry: URL,
+  foundryToken: string,
+): Promise<void> {
   const packageMetadataUrl = new URL(npmRegistry.toString())
   packageMetadataUrl.pathname += encodeURIComponent('@palantir/mcp')
 
   try {
-    const resp = await fetch(packageMetadataUrl, {
+    const requestOptions = {
       headers: { Authorization: `Bearer ${foundryToken}` },
-    })
+    }
+    const resp = await fetch(packageMetadataUrl, requestOptions)
     if (!resp.ok) {
+      console.error(await resp.json())
+
       throw new Error(
         `Retrieving the Palantir MCP package responded with unexpected status ${resp.status}`,
       )
