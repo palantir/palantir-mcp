@@ -40,6 +40,7 @@ describe('spawn', () => {
         ['-y', '@palantir/mcp@latest', '--help', '--verbose'],
         expect.objectContaining({
           stdio: 'inherit',
+          shell: true,
         }),
       )
     })
