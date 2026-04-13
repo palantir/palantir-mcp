@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'child_process'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { spawnMcp } from '../spawn.js'
 
@@ -15,16 +15,28 @@ vi.mock('child_process', () => ({
 
 describe('spawn', () => {
   const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>
+  const signalListeners: Array<{ event: string; listener: () => void }> = []
 
   beforeEach(() => {
     vi.clearAllMocks()
+    const originalOn = process.on.bind(process)
+    vi.spyOn(process, 'on').mockImplementation((event: string, listener: any) => {
+      signalListeners.push({ event, listener })
+      return originalOn(event, listener)
+    })
+  })
+
+  afterEach(() => {
+    for (const { event, listener } of signalListeners) {
+      process.removeListener(event, listener)
+    }
+    signalListeners.length = 0
+    vi.restoreAllMocks()
   })
 
   describe('spawnMcp', () => {
     it('should spawn npx with correct arguments', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
+      const mockChild = { on: vi.fn(), kill: vi.fn() }
       mockSpawn.mockReturnValue(mockChild)
 
       const options = {
@@ -46,9 +58,7 @@ describe('spawn', () => {
     })
 
     it('should set correct environment variables', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
+      const mockChild = { on: vi.fn(), kill: vi.fn() }
       mockSpawn.mockReturnValue(mockChild)
 
       const options = {
@@ -67,9 +77,7 @@ describe('spawn', () => {
     })
 
     it('should preserve existing environment variables', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
+      const mockChild = { on: vi.fn(), kill: vi.fn() }
       mockSpawn.mockReturnValue(mockChild)
 
       const originalEnv = process.env
@@ -91,42 +99,35 @@ describe('spawn', () => {
       process.env = originalEnv
     })
 
-    it('should register SIGINT signal handler', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
+    it('should register child exit and error handlers', () => {
+      const mockChild = { on: vi.fn(), kill: vi.fn() }
       mockSpawn.mockReturnValue(mockChild)
 
-      const originalListenerCount = process.listenerCount('SIGINT')
-
-      const options = {
+      spawnMcp({
         npmRegistry: new URL('https://example.com/npm/'),
         foundryToken: 'test-token',
         args: [],
-      }
+      })
 
-      spawnMcp(options)
-
-      expect(process.listenerCount('SIGINT')).toBe(originalListenerCount + 1)
+      expect(mockChild.on).toHaveBeenCalledWith('exit', expect.any(Function))
+      expect(mockChild.on).toHaveBeenCalledWith('error', expect.any(Function))
     })
 
-    it('should register SIGTERM signal handler', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
+    it('should forward SIGINT and SIGTERM to child', () => {
+      const mockChild = { on: vi.fn(), kill: vi.fn() }
       mockSpawn.mockReturnValue(mockChild)
 
-      const originalListenerCount = process.listenerCount('SIGTERM')
+      const originalSigintCount = process.listenerCount('SIGINT')
+      const originalSigtermCount = process.listenerCount('SIGTERM')
 
-      const options = {
+      spawnMcp({
         npmRegistry: new URL('https://example.com/npm/'),
         foundryToken: 'test-token',
         args: [],
-      }
+      })
 
-      spawnMcp(options)
-
-      expect(process.listenerCount('SIGTERM')).toBe(originalListenerCount + 1)
+      expect(process.listenerCount('SIGINT')).toBe(originalSigintCount + 1)
+      expect(process.listenerCount('SIGTERM')).toBe(originalSigtermCount + 1)
     })
   })
 })

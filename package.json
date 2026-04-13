@@ -15,7 +15,7 @@
     "clean": "rimraf dist",
     "bundle": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=node --target=node18 --sourcemap --external:@osdk/* --external:commander",
     "build": "npm run clean && npm run bundle && chmod +x dist/index.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",

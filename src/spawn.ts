@@ -25,6 +25,14 @@ export function spawnMcp({ npmRegistry, foundryToken, args }: SpawnOptions): voi
     },
   })
 
+  child.on('exit', (code, signal) => {
+    process.exit(code ?? (signal ? 1 : 0))
+  })
+
+  child.on('error', () => {
+    process.exit(1)
+  })
+
   process.on('SIGINT', () => {
     child.kill('SIGINT')
   })
