@@ -17,6 +17,7 @@ export function spawnMcp({ npmRegistry, foundryToken, args }: SpawnOptions): voi
 
   const child = spawn('npx', ['-y', '@palantir/mcp@latest', ...args], {
     stdio: 'inherit',
+    shell: true, // Required for Windows: npx resolves to npx.cmd
     env: {
       ...process.env,
       NPM_CONFIG_REGISTRY: npmRegistry.toString(),
