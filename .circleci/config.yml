@@ -6,7 +6,7 @@ orbs:
 executors:
   node-executor:
     docker:
-      - image: cimg/node:18.20
+      - image: cimg/node:22.14
     resource_class: medium
 
 jobs:
@@ -112,11 +112,10 @@ jobs:
             fi
             npm version $CIRCLE_TAG --no-git-tag-version --allow-same-version
       - run:
-          name: Authenticate with npm
-          command: echo "//registry.npmjs.org/:_authToken=${NPM_AUTH_TOKEN}" > ~/.npmrc
-      - run:
-          name: Publish to npm
-          command: npm publish --access public
+          name: Publish to npm with OIDC
+          command: |
+            export NPM_ID_TOKEN=$(circleci run oidc get --claims '{"aud": "npm:registry.npmjs.org"}')
+            npm publish --access public
   circle-all:
     docker:
       - image: busybox:1.34.1
@@ -176,7 +175,6 @@ workflows:
               only: /^[0-9]+\.[0-9]+\.[0-9]+.*/
             branches:
               ignore: /.*/
-          context: npm-publish
       - circle-all:
           requires:
             - lint
