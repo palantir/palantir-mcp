@@ -104,6 +104,9 @@ jobs:
       - attach_workspace:
           at: .
       - run:
+          name: Upgrade npm for trusted publishing
+          command: npm install -g npm@latest
+      - run:
           name: Set version from git tag
           command: |
             if [ -z "$CIRCLE_TAG" ]; then
