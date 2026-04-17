@@ -6,7 +6,7 @@ orbs:
 executors:
   node-executor:
     docker:
-      - image: cimg/node:22.14
+      - image: cimg/node:22.22
     resource_class: medium
 
 jobs:
