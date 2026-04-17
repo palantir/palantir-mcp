@@ -6,7 +6,7 @@ orbs:
 executors:
   node-executor:
     docker:
-      - image: cimg/node:22.22
+      - image: cimg/node:24.15
     resource_class: medium
 
 jobs:
@@ -103,9 +103,6 @@ jobs:
       - checkout
       - attach_workspace:
           at: .
-      - run:
-          name: Upgrade npm for trusted publishing
-          command: npm install -g npm@latest
       - run:
           name: Set version from git tag
           command: |
