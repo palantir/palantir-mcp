@@ -46,11 +46,12 @@ describe('CLI', () => {
       const apiUrlOption = options.find((opt) => opt.name() === 'foundry-api-url')
       expect(apiUrlOption).toBeDefined()
       expect(apiUrlOption?.required).toBe(true)
+      expect(apiUrlOption?.mandatory).toBe(true)
       expect(apiUrlOption?.description).toContain('Your Foundry domain')
 
       const tokenOption = options.find((opt) => opt.name() === 'foundry-token')
       expect(tokenOption).toBeDefined()
-      expect(tokenOption?.required).toBe(true)
+      expect(tokenOption?.mandatory).toBe(false)
       expect(tokenOption?.description).toContain('Foundry user token')
     })
   })
@@ -110,10 +111,19 @@ describe('CLI', () => {
       expect(options.foundryToken).toBe('cli-token-789')
     })
 
-    it('should throw error when required options are missing', () => {
+    it('should throw error when --foundry-api-url is missing', () => {
       const argv = ['node', 'cli.js']
 
       expect(() => parseArguments(argv)).toThrow()
+    })
+
+    it('should parse successfully when --foundry-token is omitted', () => {
+      const argv = ['node', 'cli.js', '--foundry-api-url', 'https://example.palantirfoundry.com']
+
+      const options = parseArguments(argv)
+
+      expect(options.foundryApiUrl.toString()).toBe('https://example.palantirfoundry.com/')
+      expect(options.foundryToken).toBeUndefined()
     })
 
     it('should handle extra arguments gracefully', () => {

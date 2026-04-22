@@ -8,7 +8,7 @@ import { Command, InvalidArgumentError, Option } from 'commander'
 import { getPackageVersion } from './utils/packageInfoUtils.js'
 
 export interface CliOptions {
-  foundryToken: string
+  foundryToken: string | undefined
   foundryApiUrl: URL
 }
 
@@ -38,7 +38,7 @@ export function createProgram(): Command {
     'Foundry user token to be used by the server to interact with foundry APIs',
   )
     .env('FOUNDRY_TOKEN')
-    .makeOptionMandatory(true)
+    .makeOptionMandatory(false)
 
   program
     .allowUnknownOption(true)

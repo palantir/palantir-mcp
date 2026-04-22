@@ -4,7 +4,15 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { NetworkError, NodeVersionError, PackageFetchError } from './errors.js'
+import {
+  InvalidAuthTokenError,
+  NetworkError,
+  NodeVersionError,
+  NoTokenAvailableError,
+  PackageFetchError,
+} from './errors.js'
+import { parseGitToken } from './utils/gitConfigParser.js'
+import { loadCachedToken } from './utils/tokenCache.js'
 import { TokenRefreshUtils } from './utils/tokenRefreshUtils.js'
 
 export function checkNodeVersion(): void {
@@ -26,16 +34,69 @@ export async function checkNetworkConnectivity(foundryApiUrl: URL): Promise<void
   }
 }
 
+/**
+ * Tries to validate/refresh a single token via Multipass TTL check.
+ * Returns the token (or a refreshed replacement) on success, undefined on failure.
+ */
+async function tryRefreshToken(foundryApiUrl: URL, token: string): Promise<string | undefined> {
+  try {
+    const newToken = await new TokenRefreshUtils(foundryApiUrl, token).refreshTokenIfExpired()
+    return newToken ?? token
+  } catch (error: unknown) {
+    if (error instanceof InvalidAuthTokenError) {
+      console.error(`[auth] Token invalid, trying next source: ${error.message}`)
+      return undefined
+    }
+    throw error
+  }
+}
+
+/**
+ * Git token has very limited scope — only useful to bootstrap browser auth.
+ */
+async function bootstrapTokenFromGitConfig(foundryApiUrl: URL): Promise<string | undefined> {
+  const gitToken = parseGitToken(process.cwd())
+  if (!gitToken) {
+    return undefined
+  }
+  try {
+    const newToken = await new TokenRefreshUtils(foundryApiUrl, gitToken).refreshTokenIfExpired()
+    return newToken || undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Validates a Foundry token, trying each available source in priority order:
+ * cached token → CLI token → git token (bootstrap only).
+ */
 export async function validateFoundryToken(
   foundryApiUrl: URL,
-  foundryToken: string,
+  cliToken: string | undefined,
 ): Promise<string> {
-  const newToken: string | undefined = await new TokenRefreshUtils(
-    foundryApiUrl,
-    foundryToken,
-  ).refreshTokenIfExpired()
+  const cachedToken = loadCachedToken(foundryApiUrl.origin)
 
-  return newToken ?? foundryToken
+  if (cachedToken) {
+    const result = await tryRefreshToken(foundryApiUrl, cachedToken)
+    if (result) {
+      return result
+    }
+  }
+
+  if (cliToken && cliToken !== cachedToken) {
+    const result = await tryRefreshToken(foundryApiUrl, cliToken)
+    if (result) {
+      return result
+    }
+  }
+
+  const bootstrapped = await bootstrapTokenFromGitConfig(foundryApiUrl)
+  if (bootstrapped) {
+    return bootstrapped
+  }
+
+  throw new NoTokenAvailableError(foundryApiUrl.hostname)
 }
 
 export async function checkPackageAvailability(
