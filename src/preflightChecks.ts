@@ -44,7 +44,7 @@ async function tryRefreshToken(foundryApiUrl: URL, token: string): Promise<strin
     return newToken ?? token
   } catch (error: unknown) {
     if (error instanceof InvalidAuthTokenError) {
-      console.error(`[auth] Token invalid, trying next source: ${error.message}`)
+      console.error(error.message)
       return undefined
     }
     throw error
