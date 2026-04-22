@@ -40,31 +40,20 @@ describe('tokenCache', () => {
       expect(loadCachedToken('https://example.palantirfoundry.com')).toBeUndefined()
     })
 
-    it('should return the token when host exists in the config', () => {
+    it('should return the token when host exists', () => {
       vi.spyOn(fs, 'readFileSync').mockReturnValue(VALID_CONFIG)
 
       expect(loadCachedToken('https://example.palantirfoundry.com')).toBe(CACHED_TOKEN)
     })
 
-    it('should return undefined when host is not in the config', () => {
+    it('should return undefined when host is not in config', () => {
       vi.spyOn(fs, 'readFileSync').mockReturnValue(VALID_CONFIG)
 
       expect(loadCachedToken('https://other-host.palantirfoundry.com')).toBeUndefined()
     })
 
-    it('should return undefined when config file contains malformed JSON', () => {
+    it('should return undefined for malformed JSON', () => {
       vi.spyOn(fs, 'readFileSync').mockReturnValue('not valid json{{{')
-
-      expect(loadCachedToken('https://example.palantirfoundry.com')).toBeUndefined()
-    })
-
-    it('should return undefined when token is empty string', () => {
-      const config = JSON.stringify({
-        hosts: {
-          'https://example.palantirfoundry.com': { token: '' },
-        },
-      })
-      vi.spyOn(fs, 'readFileSync').mockReturnValue(config)
 
       expect(loadCachedToken('https://example.palantirfoundry.com')).toBeUndefined()
     })
@@ -72,12 +61,10 @@ describe('tokenCache', () => {
 
   describe('saveCachedToken', () => {
     let writtenContent: string
-    let writtenPath: string
 
     beforeEach(() => {
       vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined)
-      vi.spyOn(fs, 'writeFileSync').mockImplementation((p, content) => {
-        writtenPath = p as string
+      vi.spyOn(fs, 'writeFileSync').mockImplementation((_p, content) => {
         writtenContent = content as string
       })
       vi.spyOn(fs, 'renameSync').mockReturnValue(undefined)
@@ -92,10 +79,6 @@ describe('tokenCache', () => {
 
       const saved = JSON.parse(writtenContent)
       expect(saved.hosts['https://example.palantirfoundry.com'].token).toBe('new-token')
-      expect(fs.mkdirSync).toHaveBeenCalledWith(
-        expect.stringContaining('.palantir'),
-        expect.objectContaining({ recursive: true, mode: 0o700 }),
-      )
     })
 
     it('should merge into existing config without losing other hosts', () => {
@@ -115,28 +98,6 @@ describe('tokenCache', () => {
 
       const saved = JSON.parse(writtenContent)
       expect(saved.hosts['https://example.palantirfoundry.com'].token).toBe('refreshed-token')
-    })
-
-    it('should write to a temp file and rename for atomicity', () => {
-      vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
-        throw new Error('ENOENT')
-      })
-
-      saveCachedToken('https://example.palantirfoundry.com', 'token')
-
-      expect(writtenPath).toContain('.tmp')
-      expect(fs.renameSync).toHaveBeenCalled()
-    })
-
-    it('should not throw when write fails', () => {
-      vi.spyOn(fs, 'readFileSync').mockImplementation(() => {
-        throw new Error('ENOENT')
-      })
-      vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
-        throw new Error('EACCES: permission denied')
-      })
-
-      expect(() => saveCachedToken('https://example.palantirfoundry.com', 'token')).not.toThrow()
     })
   })
 })

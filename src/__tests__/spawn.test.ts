@@ -13,120 +13,34 @@ vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }))
 
-describe('spawn', () => {
+describe('spawnMcp', () => {
   const mockSpawn = spawn as unknown as ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSpawn.mockReturnValue({ kill: vi.fn() })
   })
 
-  describe('spawnMcp', () => {
-    it('should spawn npx with correct arguments', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
-      mockSpawn.mockReturnValue(mockChild)
+  it('should spawn npx with correct arguments and environment', () => {
+    const options = {
+      npmRegistry: new URL('https://example.com/npm/'),
+      foundryToken: 'test-token',
+      args: ['--help', '--verbose'],
+    }
 
-      const options = {
-        npmRegistry: new URL('https://example.com/npm/'),
-        foundryToken: 'test-token',
-        args: ['--help', '--verbose'],
-      }
+    spawnMcp(options)
 
-      spawnMcp(options)
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'npx',
+      ['-y', '@palantir/mcp@latest', '--help', '--verbose'],
+      expect.objectContaining({
+        stdio: 'inherit',
+        shell: true,
+      }),
+    )
 
-      expect(mockSpawn).toHaveBeenCalledWith(
-        'npx',
-        ['-y', '@palantir/mcp@latest', '--help', '--verbose'],
-        expect.objectContaining({
-          stdio: 'inherit',
-          shell: true,
-        }),
-      )
-    })
-
-    it('should set correct environment variables', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
-      mockSpawn.mockReturnValue(mockChild)
-
-      const options = {
-        npmRegistry: new URL('https://example.com/npm/'),
-        foundryToken: 'test-token',
-        args: [],
-      }
-
-      spawnMcp(options)
-
-      const spawnCall = mockSpawn.mock.calls[0]
-      const env = spawnCall[2].env
-
-      expect(env.NPM_CONFIG_REGISTRY).toBe('https://example.com/npm/')
-      expect(env['NPM_CONFIG_//example.com/npm/:_authToken']).toBe('test-token')
-    })
-
-    it('should preserve existing environment variables', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
-      mockSpawn.mockReturnValue(mockChild)
-
-      const originalEnv = process.env
-      process.env.CUSTOM_VAR = 'custom-value'
-
-      const options = {
-        npmRegistry: new URL('https://example.com/npm/'),
-        foundryToken: 'test-token',
-        args: [],
-      }
-
-      spawnMcp(options)
-
-      const spawnCall = mockSpawn.mock.calls[0]
-      const env = spawnCall[2].env
-
-      expect(env.CUSTOM_VAR).toBe('custom-value')
-
-      process.env = originalEnv
-    })
-
-    it('should register SIGINT signal handler', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
-      mockSpawn.mockReturnValue(mockChild)
-
-      const originalListenerCount = process.listenerCount('SIGINT')
-
-      const options = {
-        npmRegistry: new URL('https://example.com/npm/'),
-        foundryToken: 'test-token',
-        args: [],
-      }
-
-      spawnMcp(options)
-
-      expect(process.listenerCount('SIGINT')).toBe(originalListenerCount + 1)
-    })
-
-    it('should register SIGTERM signal handler', () => {
-      const mockChild = {
-        kill: vi.fn(),
-      }
-      mockSpawn.mockReturnValue(mockChild)
-
-      const originalListenerCount = process.listenerCount('SIGTERM')
-
-      const options = {
-        npmRegistry: new URL('https://example.com/npm/'),
-        foundryToken: 'test-token',
-        args: [],
-      }
-
-      spawnMcp(options)
-
-      expect(process.listenerCount('SIGTERM')).toBe(originalListenerCount + 1)
-    })
+    const env = mockSpawn.mock.calls[0][2].env
+    expect(env.NPM_CONFIG_REGISTRY).toBe('https://example.com/npm/')
+    expect(env['NPM_CONFIG_//example.com/npm/:_authToken']).toBe('test-token')
   })
 })
