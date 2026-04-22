@@ -28,7 +28,6 @@ async function main() {
     checkNodeVersion()
     await checkNetworkConnectivity(foundryApiUrl)
     validatedFoundryToken = await validateFoundryToken(foundryApiUrl, foundryToken)
-    // Always persist the validated token so future startups can use the cache
     saveCachedToken(foundryHost, validatedFoundryToken)
     // important for child processes spawned later
     process.env.FOUNDRY_TOKEN = validatedFoundryToken
