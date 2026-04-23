@@ -60,8 +60,7 @@ async function bootstrapTokenFromGitConfig(foundryApiUrl: URL): Promise<string |
     return undefined
   }
   try {
-    const newToken = await new TokenRefreshUtils(foundryApiUrl, gitToken).refreshTokenIfExpired()
-    return newToken || undefined
+    return await new TokenRefreshUtils(foundryApiUrl, gitToken).forceRefreshToken()
   } catch {
     return undefined
   }

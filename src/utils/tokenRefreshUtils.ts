@@ -30,16 +30,10 @@ export class TokenRefreshUtils {
   }
 
   /**
-   * Attempts to refresh the token interactively
-   * @returns Promise that resolves to the new token, or undefined if refresh failed
+   * Forces a token refresh via browser auth, regardless of current token's TTL.
+   * @returns Promise that resolves to the new token
    */
-  async refreshTokenIfExpired(): Promise<string | undefined> {
-    const isExpired = await isTokenExpired(this.multipassApi, TokenRefreshUtils.MINIMUM_TOKEN_TTL)
-    if (!isExpired) {
-      // token is not expired
-      return
-    }
-
+  async forceRefreshToken(): Promise<string> {
     const secret = this.generateSecret()
     const authorizationUrl = this.getAuthorizationUrl(secret)
 
@@ -48,6 +42,20 @@ export class TokenRefreshUtils {
     const newToken: string = await this.pollForToken(secret)
 
     return newToken
+  }
+
+  /**
+   * Checks if the token is expired and refreshes it via browser auth if needed.
+   * @returns Promise that resolves to the new token, or undefined if token is still valid
+   */
+  async refreshTokenIfExpired(): Promise<string | undefined> {
+    const isExpired = await isTokenExpired(this.multipassApi, TokenRefreshUtils.MINIMUM_TOKEN_TTL)
+    if (!isExpired) {
+      // token is not expired
+      return
+    }
+
+    return this.forceRefreshToken()
   }
 
   private generateSecret(): string {

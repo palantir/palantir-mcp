@@ -45,14 +45,20 @@ describe('preflightChecks', () => {
   const npmRegistry = new URL('https://example.palantirfoundry.com/npm/')
 
   let mockRefreshTokenIfExpired: ReturnType<typeof vi.fn>
+  let mockForceRefreshToken: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn()
 
     mockRefreshTokenIfExpired = vi.fn()
+    mockForceRefreshToken = vi.fn()
     vi.mocked(TokenRefreshUtils).mockImplementation(
-      () => ({ refreshTokenIfExpired: mockRefreshTokenIfExpired }) as unknown as TokenRefreshUtils,
+      () =>
+        ({
+          refreshTokenIfExpired: mockRefreshTokenIfExpired,
+          forceRefreshToken: mockForceRefreshToken,
+        }) as unknown as TokenRefreshUtils,
     )
     vi.mocked(tokenCache.loadCachedToken).mockReturnValue(undefined)
     vi.mocked(gitConfigParser.parseGitToken).mockReturnValue(undefined)
@@ -162,21 +168,22 @@ describe('preflightChecks', () => {
       expect(TokenRefreshUtils).toHaveBeenCalledTimes(1)
     })
 
-    it('should use git token only for browser auth bootstrap', async () => {
+    it('should use git token only for browser auth bootstrap via forceRefreshToken', async () => {
       // No cached or CLI token — only git token available
       vi.mocked(gitConfigParser.parseGitToken).mockReturnValue('git-token')
-      mockRefreshTokenIfExpired.mockResolvedValue(REFRESHED_TOKEN)
+      mockForceRefreshToken.mockResolvedValue(REFRESHED_TOKEN)
 
       const result = await validateFoundryToken(foundryApiUrl, undefined)
 
       expect(result).toBe(REFRESHED_TOKEN)
+      // Should use forceRefreshToken (not refreshTokenIfExpired) for git tokens
+      expect(mockForceRefreshToken).toHaveBeenCalledTimes(1)
+      expect(mockRefreshTokenIfExpired).not.toHaveBeenCalled()
     })
 
-    it('should not return git token directly even if its TTL is valid', async () => {
-      // refreshTokenIfExpired returns undefined = token TTL is fine, no refresh
-      // But git token has limited scope and should not be used directly
+    it('should throw when git token force refresh fails', async () => {
       vi.mocked(gitConfigParser.parseGitToken).mockReturnValue('git-token')
-      mockRefreshTokenIfExpired.mockResolvedValue(undefined)
+      mockForceRefreshToken.mockRejectedValue(new Error('browser auth failed'))
 
       await expect(validateFoundryToken(foundryApiUrl, undefined)).rejects.toThrow(
         NoTokenAvailableError,
