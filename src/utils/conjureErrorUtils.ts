@@ -25,7 +25,20 @@ export function isInvalidJwtError(error: unknown): boolean {
     const conjureError = error.body as any
 
     return (
-      conjureError.errorCode === 'UNAUTHORIZED' && conjureError.parameters.error === 'INVALID_JWT'
+      conjureError?.errorCode === 'UNAUTHORIZED' &&
+      conjureError?.parameters?.error === 'INVALID_JWT'
+    )
+  }
+
+  return false
+}
+
+export function isExpiredTokenError(error: unknown): boolean {
+  if (isConjureError(error)) {
+    const conjureError = error.body as any
+
+    return (
+      conjureError?.errorCode === 'UNAUTHORIZED' && conjureError?.parameters?.error === 'EXPIRED'
     )
   }
 

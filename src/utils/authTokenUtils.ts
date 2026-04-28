@@ -6,8 +6,13 @@
 
 import { AuthoringApi } from '@api/authoringApi.js'
 import { MultipassApi } from '@api/multipassApi.js'
+import { isConjureError } from 'conjure-client'
 import { InvalidAuthTokenError } from 'src/errors.js'
-import { isInvalidAuthTokenSignature, isInvalidJwtError } from './conjureErrorUtils.js'
+import {
+  isExpiredTokenError,
+  isInvalidAuthTokenSignature,
+  isInvalidJwtError,
+} from './conjureErrorUtils.js'
 
 export async function isTokenExpired(
   multipassApi: MultipassApi,
@@ -18,11 +23,23 @@ export async function isTokenExpired(
 
     return response < minimumTimeToLive
   } catch (error: unknown) {
-    // if we have an invalid JWT, we will not be able to refresh.
+    // Token was signed by a different Foundry stack — cannot be refreshed here.
     if (isInvalidJwtError(error)) {
       throw new InvalidAuthTokenError(multipassApi.context.apiUrl.hostname)
     }
 
+    // Token was issued by this stack but has expired — can be refreshed via browser auth.
+    if (isExpiredTokenError(error)) {
+      return true
+    }
+
+    // Any other Conjure error (403 RequestBlocked, etc.) means the token is invalid
+    // for this stack — do not attempt browser auth.
+    if (isConjureError(error)) {
+      throw new InvalidAuthTokenError(multipassApi.context.apiUrl.hostname)
+    }
+
+    // Non-Conjure errors (network issues, etc.) — assume expired and attempt refresh.
     return true
   }
 }

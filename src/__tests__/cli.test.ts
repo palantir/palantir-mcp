@@ -50,7 +50,7 @@ describe('CLI', () => {
 
       const tokenOption = options.find((opt) => opt.name() === 'foundry-token')
       expect(tokenOption).toBeDefined()
-      expect(tokenOption?.required).toBe(true)
+      expect(tokenOption?.mandatory).toBe(false)
       expect(tokenOption?.description).toContain('Foundry user token')
     })
   })

@@ -6,51 +6,62 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { NetworkError, NodeVersionError, PackageFetchError } from '../errors.js'
+import {
+  InvalidAuthTokenError,
+  NetworkError,
+  NodeVersionError,
+  NoTokenAvailableError,
+  PackageFetchError,
+} from '../errors.js'
 import {
   checkNodeVersion,
   checkNetworkConnectivity,
   validateFoundryToken,
   checkPackageAvailability,
 } from '../preflightChecks.js'
-import { isTokenExpired } from '../utils/authTokenUtils.js'
+import * as gitConfigParser from '../utils/gitConfigParser.js'
+import * as tokenCache from '../utils/tokenCache.js'
 import { TokenRefreshUtils } from '../utils/tokenRefreshUtils.js'
 
-const mockGetTokenTimeToLiveInSeconds = vi.fn()
-const mockRetrieveToken = vi.fn()
-
-vi.mock('@api/multipassApi.js', () => ({
-  MultipassApi: vi.fn().mockImplementation(() => ({
-    getTokenTimeToLiveInSeconds: mockGetTokenTimeToLiveInSeconds,
-  })),
+vi.mock('../utils/tokenRefreshUtils.js')
+vi.mock('../utils/tokenCache.js', async (importOriginal) => {
+  const original = await importOriginal<typeof tokenCache>()
+  return {
+    ...original,
+    loadCachedToken: vi.fn(),
+  }
+})
+vi.mock('../utils/gitConfigParser.js', () => ({
+  parseGitToken: vi.fn(),
 }))
 
-vi.mock('@api/authoringApi.js', () => ({
-  AuthoringApi: vi.fn().mockImplementation(() => ({
-    retrieveToken: mockRetrieveToken,
-  })),
-}))
-
-vi.mock('../utils/authTokenUtils.js', () => ({
-  isTokenExpired: vi.fn(),
-  retrieveTokenFromSecret: vi.fn(),
-}))
-
-vi.mock('child_process', () => ({
-  exec: vi.fn((_command, callback) => callback(null)),
-}))
+const CACHED_TOKEN = 'cached-token'
+const CLI_TOKEN = 'cli-token'
+const REFRESHED_TOKEN = 'refreshed-token'
 
 describe('preflightChecks', () => {
   const foundryApiUrl = new URL('https://example.palantirfoundry.com')
   const foundryToken = 'test-token'
   const npmRegistry = new URL('https://example.palantirfoundry.com/npm/')
 
+  let mockRefreshTokenIfExpired: ReturnType<typeof vi.fn>
+  let mockForceRefreshToken: ReturnType<typeof vi.fn>
+
   beforeEach(() => {
     vi.clearAllMocks()
     global.fetch = vi.fn()
-    mockGetTokenTimeToLiveInSeconds.mockClear()
-    mockRetrieveToken.mockClear()
-    delete process.env.FOUNDRY_TOKEN
+
+    mockRefreshTokenIfExpired = vi.fn()
+    mockForceRefreshToken = vi.fn()
+    vi.mocked(TokenRefreshUtils).mockImplementation(
+      () =>
+        ({
+          refreshTokenIfExpired: mockRefreshTokenIfExpired,
+          forceRefreshToken: mockForceRefreshToken,
+        }) as unknown as TokenRefreshUtils,
+    )
+    vi.mocked(tokenCache.loadCachedToken).mockReturnValue(undefined)
+    vi.mocked(gitConfigParser.parseGitToken).mockReturnValue(undefined)
   })
 
   describe('individual preflight checks', () => {
@@ -61,14 +72,14 @@ describe('preflightChecks', () => {
         vi.spyOn(process.versions, 'node', 'get').mockReturnValue('18.0.0')
       }
 
-      // Mock token not expired
-      vi.mocked(isTokenExpired).mockResolvedValueOnce(false)
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
+      mockRefreshTokenIfExpired.mockResolvedValue(undefined) // token still valid
       ;(global.fetch as any).mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: true })
 
       expect(() => checkNodeVersion()).not.toThrow()
       await expect(checkNetworkConnectivity(foundryApiUrl)).resolves.not.toThrow()
-      const validatedToken = await validateFoundryToken(foundryApiUrl, foundryToken)
-      expect(validatedToken).toBe(foundryToken)
+      const validatedToken = await validateFoundryToken(foundryApiUrl, CLI_TOKEN)
+      expect(validatedToken).toBe(CACHED_TOKEN)
       await expect(checkPackageAvailability(npmRegistry, validatedToken)).resolves.not.toThrow()
     })
 
@@ -107,79 +118,81 @@ describe('preflightChecks', () => {
   })
 
   describe('validateFoundryToken', () => {
-    it('should return original token when token is not expired', async () => {
-      vi.mocked(isTokenExpired).mockResolvedValueOnce(false)
+    it('should return cached token when it is still valid', async () => {
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
+      mockRefreshTokenIfExpired.mockResolvedValue(undefined)
 
-      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
+      const result = await validateFoundryToken(foundryApiUrl, CLI_TOKEN)
 
-      expect(result).toBe(foundryToken)
-      expect(vi.mocked(isTokenExpired)).toHaveBeenCalled()
+      expect(result).toBe(CACHED_TOKEN)
     })
 
-    it('should refresh token when expired and return new token', async () => {
-      const newToken = 'new-refreshed-token'
+    it('should return refreshed token when cached token is expired', async () => {
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
+      mockRefreshTokenIfExpired.mockResolvedValue(REFRESHED_TOKEN)
 
-      // Mock successful token refresh flow - this will return the new token
-      const mockRefreshTokenIfExpired = vi.fn().mockResolvedValue(newToken)
-      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
-        mockRefreshTokenIfExpired,
-      )
+      const result = await validateFoundryToken(foundryApiUrl, CLI_TOKEN)
 
-      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
-
-      expect(result).toBe(newToken)
-      expect(mockRefreshTokenIfExpired).toHaveBeenCalled()
+      expect(result).toBe(REFRESHED_TOKEN)
     })
 
-    it('should refresh token when TTL check throws error', async () => {
-      const newToken = 'new-refreshed-token'
+    it('should fall back to CLI token when cached token is invalid', async () => {
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
+      mockRefreshTokenIfExpired
+        .mockRejectedValueOnce(new InvalidAuthTokenError(foundryApiUrl.hostname))
+        .mockResolvedValueOnce(undefined) // CLI token is valid
 
-      // Mock TTL check failure (treated as expired)
-      vi.mocked(isTokenExpired).mockRejectedValueOnce(new Error('Token invalid'))
+      const result = await validateFoundryToken(foundryApiUrl, CLI_TOKEN)
 
-      // Mock successful token refresh
-      const mockRefreshTokenIfExpired = vi.fn().mockResolvedValue(newToken)
-      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
-        mockRefreshTokenIfExpired,
-      )
-
-      const result = await validateFoundryToken(foundryApiUrl, foundryToken)
-
-      expect(result).toBe(newToken)
-      expect(mockRefreshTokenIfExpired).toHaveBeenCalled()
+      expect(result).toBe(CLI_TOKEN)
+      expect(TokenRefreshUtils).toHaveBeenCalledTimes(2)
     })
 
-    it('should handle token refresh timeout gracefully', async () => {
-      // Mock expired token
-      vi.mocked(isTokenExpired).mockResolvedValueOnce(true)
+    it('should throw when all tokens are invalid', async () => {
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
+      mockRefreshTokenIfExpired.mockRejectedValue(new InvalidAuthTokenError(foundryApiUrl.hostname))
 
-      // Mock refreshTokenIfExpired to throw timeout error
-      const mockRefreshTokenIfExpired = vi
-        .fn()
-        .mockRejectedValue(new Error('Token retrieval timed out'))
-      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
-        mockRefreshTokenIfExpired,
-      )
-
-      await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
-        'Token retrieval timed out',
+      await expect(validateFoundryToken(foundryApiUrl, CLI_TOKEN)).rejects.toThrow(
+        NoTokenAvailableError,
       )
     })
 
-    it('should handle browser opening failure during refresh', async () => {
-      // Mock expired token
-      vi.mocked(isTokenExpired).mockResolvedValueOnce(true)
+    it('should deduplicate when cached and CLI tokens are identical', async () => {
+      vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CLI_TOKEN)
+      mockRefreshTokenIfExpired.mockResolvedValue(undefined)
 
-      // Mock refreshTokenIfExpired to throw browser error
-      const mockRefreshTokenIfExpired = vi
-        .fn()
-        .mockRejectedValue(new Error('Browser failed to open'))
-      vi.spyOn(TokenRefreshUtils.prototype, 'refreshTokenIfExpired').mockImplementation(
-        mockRefreshTokenIfExpired,
+      const result = await validateFoundryToken(foundryApiUrl, CLI_TOKEN)
+
+      expect(result).toBe(CLI_TOKEN)
+      // Should only create one TokenRefreshUtils, not two
+      expect(TokenRefreshUtils).toHaveBeenCalledTimes(1)
+    })
+
+    it('should use git token only for browser auth bootstrap via forceRefreshToken', async () => {
+      // No cached or CLI token — only git token available
+      vi.mocked(gitConfigParser.parseGitToken).mockReturnValue('git-token')
+      mockForceRefreshToken.mockResolvedValue(REFRESHED_TOKEN)
+
+      const result = await validateFoundryToken(foundryApiUrl, undefined)
+
+      expect(result).toBe(REFRESHED_TOKEN)
+      // Should use forceRefreshToken (not refreshTokenIfExpired) for git tokens
+      expect(mockForceRefreshToken).toHaveBeenCalledTimes(1)
+      expect(mockRefreshTokenIfExpired).not.toHaveBeenCalled()
+    })
+
+    it('should throw when git token force refresh fails', async () => {
+      vi.mocked(gitConfigParser.parseGitToken).mockReturnValue('git-token')
+      mockForceRefreshToken.mockRejectedValue(new Error('browser auth failed'))
+
+      await expect(validateFoundryToken(foundryApiUrl, undefined)).rejects.toThrow(
+        NoTokenAvailableError,
       )
+    })
 
-      await expect(validateFoundryToken(foundryApiUrl, foundryToken)).rejects.toThrow(
-        'Browser failed to open',
+    it('should throw NoTokenAvailableError when no candidates exist', async () => {
+      await expect(validateFoundryToken(foundryApiUrl, undefined)).rejects.toThrow(
+        NoTokenAvailableError,
       )
     })
   })
