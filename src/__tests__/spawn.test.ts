@@ -35,12 +35,16 @@ describe('spawn', () => {
 
       spawnMcp(options)
 
+      const isWindows = process.platform === 'win32'
       expect(mockSpawn).toHaveBeenCalledWith(
         'npx',
         ['-y', '@palantir/mcp@latest', '--help', '--verbose'],
         expect.objectContaining({
           stdio: 'inherit',
-          shell: true,
+          // shell only on Windows (needed for .cmd resolution).
+          // On Linux/macOS shell: false avoids /bin/sh dropping env vars
+          // whose names contain / and : (the npm auth token key).
+          shell: isWindows,
         }),
       )
     })

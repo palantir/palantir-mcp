@@ -15,9 +15,10 @@ export interface SpawnOptions {
 export function spawnMcp({ npmRegistry, foundryToken, args }: SpawnOptions): void {
   const authTokenEnvVar = `NPM_CONFIG_//${npmRegistry.host + npmRegistry.pathname}:_authToken`
 
+  const isWindows = process.platform === 'win32'
   const child = spawn('npx', ['-y', '@palantir/mcp@latest', ...args], {
     stdio: 'inherit',
-    shell: true, // Required for Windows: npx resolves to npx.cmd
+    shell: isWindows,
     env: {
       ...process.env,
       NPM_CONFIG_REGISTRY: npmRegistry.toString(),
