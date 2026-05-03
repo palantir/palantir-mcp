@@ -25,8 +25,16 @@
  */
 
 import { execSync } from 'child_process'
-import { existsSync, unlinkSync } from 'fs'
+import { copyFileSync, existsSync, unlinkSync } from 'fs'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+
+function restoreFromBackup(backupPath: string, targetPath: string): void {
+  if (!existsSync(backupPath)) {
+    return
+  }
+  copyFileSync(backupPath, targetPath)
+  unlinkSync(backupPath)
+}
 
 describe('Package Version E2E', () => {
   const testVersion = '12.34.56-e2e-test'
@@ -34,9 +42,9 @@ describe('Package Version E2E', () => {
 
   beforeAll(() => {
     // Save original package.json and package-lock.json in backup files, so we can revert after the test completes
-    execSync('cp package.json package.json.backup', { stdio: 'pipe' })
+    copyFileSync('package.json', 'package.json.backup')
     if (existsSync('package-lock.json')) {
-      execSync('cp package-lock.json package-lock.json.backup', { stdio: 'pipe' })
+      copyFileSync('package-lock.json', 'package-lock.json.backup')
     }
 
     // Set test version
@@ -59,13 +67,11 @@ describe('Package Version E2E', () => {
     }
 
     // Restore original package.json
-    if (existsSync('package.json.backup')) {
-      execSync('mv package.json.backup package.json', { stdio: 'pipe' })
-    }
+    restoreFromBackup('package.json.backup', 'package.json')
 
     // Restore original package-lock.json if it was backed up
     if (existsSync('package-lock.json.backup')) {
-      execSync('mv package-lock.json.backup package-lock.json', { stdio: 'pipe' })
+      restoreFromBackup('package-lock.json.backup', 'package-lock.json')
     } else if (existsSync('package-lock.json')) {
       // Remove package-lock.json if it didn't exist originally
       unlinkSync('package-lock.json')
