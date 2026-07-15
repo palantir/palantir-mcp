@@ -45,17 +45,13 @@ export class TokenRefreshUtils {
   }
 
   /**
-   * Checks if the token is expired and refreshes it via browser auth if needed.
-   * @returns Promise that resolves to the new token, or undefined if token is still valid
+   * Checks whether the current token is expired (or expiring within the minimum
+   * TTL) without initiating any interactive refresh.
+   * @returns true if the token is expired/expiring. Throws InvalidAuthTokenError
+   * if the token is not valid for this stack (e.g. signed by a different stack).
    */
-  async refreshTokenIfExpired(): Promise<string | undefined> {
-    const isExpired = await isTokenExpired(this.multipassApi, TokenRefreshUtils.MINIMUM_TOKEN_TTL)
-    if (!isExpired) {
-      // token is not expired
-      return
-    }
-
-    return this.forceRefreshToken()
+  async isExpired(): Promise<boolean> {
+    return isTokenExpired(this.multipassApi, TokenRefreshUtils.MINIMUM_TOKEN_TTL)
   }
 
   private generateSecret(): string {

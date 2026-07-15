@@ -35,23 +35,6 @@ export async function checkNetworkConnectivity(foundryApiUrl: URL): Promise<void
 }
 
 /**
- * Tries to validate/refresh a single token via Multipass TTL check.
- * Returns the token (or a refreshed replacement) on success, undefined on failure.
- */
-async function tryRefreshToken(foundryApiUrl: URL, token: string): Promise<string | undefined> {
-  try {
-    const newToken = await new TokenRefreshUtils(foundryApiUrl, token).refreshTokenIfExpired()
-    return newToken ?? token
-  } catch (error: unknown) {
-    if (error instanceof InvalidAuthTokenError) {
-      console.error(error.message)
-      return undefined
-    }
-    throw error
-  }
-}
-
-/**
  * Git token has very limited scope — only useful to bootstrap browser auth.
  */
 async function bootstrapTokenFromGitConfig(foundryApiUrl: URL): Promise<string | undefined> {
@@ -67,29 +50,54 @@ async function bootstrapTokenFromGitConfig(foundryApiUrl: URL): Promise<string |
 }
 
 /**
- * Validates a Foundry token, trying each available source in priority order:
- * cached token → CLI token → git token (bootstrap only).
+ * Validates a Foundry token, preferring any token that is already valid before
+ * ever initiating an interactive refresh. If the cache is expired but the
+ * provided token is valid, the latter is used.
+ *
+ * Resolution order:
+ *   1. Any already-valid token (cached, then CLI).
+ *   2. Interactive refresh of an expired token (cached, then CLI).
+ *   3. Git token bootstrap (browser auth).
  */
 export async function validateFoundryToken(
   foundryApiUrl: URL,
   cliToken: string | undefined,
 ): Promise<string> {
   const cachedToken = loadCachedToken(foundryApiUrl.origin)
+  const candidates = [...new Set([cachedToken, cliToken].filter((t) => t !== undefined))]
 
-  if (cachedToken) {
-    const result = await tryRefreshToken(foundryApiUrl, cachedToken)
-    if (result) {
-      return result
+  // Valid-but-expired tokens, eligible for interactive refresh.
+  const refreshable: string[] = []
+
+  // 1. Prefer any already-valid token. isExpired() never opens a browser, so a
+  //    stale cached token can no longer trigger auth ahead of a valid CLI/env token.
+  for (const token of candidates) {
+    try {
+      if (await new TokenRefreshUtils(foundryApiUrl, token).isExpired()) {
+        refreshable.push(token)
+      } else {
+        return token
+      }
+    } catch (error: unknown) {
+      // Token is not valid for this environment
+      if (error instanceof InvalidAuthTokenError) {
+        console.error(error.message)
+        continue
+      }
+      throw error
     }
   }
 
-  if (cliToken && cliToken !== cachedToken) {
-    const result = await tryRefreshToken(foundryApiUrl, cliToken)
-    if (result) {
-      return result
+  // 2. Nothing is currently valid - interactively refresh an expired token.
+  for (const token of refreshable) {
+    try {
+      return await new TokenRefreshUtils(foundryApiUrl, token).forceRefreshToken()
+    } catch {
+      // Browser auth failed or timed out — try the next candidate.
     }
   }
 
+  // 3. Fall back to bootstrapping from the git token.
   const bootstrapped = await bootstrapTokenFromGitConfig(foundryApiUrl)
   if (bootstrapped) {
     return bootstrapped
