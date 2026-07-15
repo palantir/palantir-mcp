@@ -130,6 +130,29 @@ claude mcp add palantir-mcp \
 }
 ```
 
+## Pinning `@palantir/mcp` (workaround)
+
+Some strict MCP clients reject tool schemas if a published `@palantir/mcp` build declares an `array` parameter without `items` (see [palantir/palantir-mcp#31](https://github.com/palantir/palantir-mcp/issues/31)). Until Palantir ships a fix in `@palantir/mcp`, you can **pin** the package version the wrapper installs by setting:
+
+```bash
+export PALANTIR_MCP_PACKAGE=@palantir/mcp@0.305.0
+```
+
+Then run `npx palantir-mcp ...` as usual. The value **must** start with `@palantir/mcp@` followed by a version tag (for example `latest` or `0.305.0`).
+
+In **Cursor** / **VS Code** MCP config, add the same variable alongside `FOUNDRY_TOKEN`:
+
+```json
+"env": {
+  "FOUNDRY_TOKEN": "<token>",
+  "PALANTIR_MCP_PACKAGE": "@palantir/mcp@0.305.0"
+}
+```
+
+Adjust the version to whatever your Foundry registry documents as a known-good release.
+
+**Note:** Correct URL construction for `clone_code_repository_locally` (email / git userinfo) and ontology `objectTypeId` validation are implemented inside **`@palantir/mcp`**, not this wrapper — track [palantir/palantir-mcp#24](https://github.com/palantir/palantir-mcp/issues/24) and [#19](https://github.com/palantir/palantir-mcp/issues/19).
+
 ## Development
 
 ```bash
@@ -158,7 +181,7 @@ npm run format
 The tool is organized into focused modules:
 
 - `cli.ts` - Command-line argument parsing and validation
-- `spawn.ts` - Process spawning and signal handling
+- `spawn.ts` - Process spawning, optional `PALANTIR_MCP_PACKAGE` override for pinning `@palantir/mcp`
 - `registry.ts` - NPM registry URL construction
 - `errors.ts` - Custom error classes for better error handling
 - `preflightChecks.ts` - Validation of environment and credentials

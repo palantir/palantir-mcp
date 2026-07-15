@@ -7,7 +7,7 @@
 import { spawn } from 'child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { spawnMcp } from '../spawn.js'
+import { resolvePalantirMcpPackageSpec, spawnMcp } from '../spawn.js'
 
 vi.mock('child_process', () => ({
   spawn: vi.fn(),
@@ -18,6 +18,7 @@ describe('spawn', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.PALANTIR_MCP_PACKAGE
   })
 
   describe('spawnMcp', () => {
@@ -131,6 +132,41 @@ describe('spawn', () => {
       spawnMcp(options)
 
       expect(process.listenerCount('SIGTERM')).toBe(originalListenerCount + 1)
+    })
+
+    it('should use PALANTIR_MCP_PACKAGE when set for pin workaround', () => {
+      const mockChild = { kill: vi.fn() }
+      mockSpawn.mockReturnValue(mockChild)
+      process.env.PALANTIR_MCP_PACKAGE = '@palantir/mcp@0.305.0'
+
+      spawnMcp({
+        npmRegistry: new URL('https://example.com/npm/'),
+        foundryToken: 'test-token',
+        args: [],
+      })
+
+      expect(mockSpawn).toHaveBeenCalledWith(
+        'npx',
+        ['-y', '@palantir/mcp@0.305.0'],
+        expect.anything(),
+      )
+    })
+  })
+
+  describe('resolvePalantirMcpPackageSpec', () => {
+    it('defaults to @palantir/mcp@latest', () => {
+      delete process.env.PALANTIR_MCP_PACKAGE
+      expect(resolvePalantirMcpPackageSpec()).toBe('@palantir/mcp@latest')
+    })
+
+    it('accepts pinned Palantir MCP version', () => {
+      process.env.PALANTIR_MCP_PACKAGE = '@palantir/mcp@0.305.0'
+      expect(resolvePalantirMcpPackageSpec()).toBe('@palantir/mcp@0.305.0')
+    })
+
+    it('rejects non-palantir package prefix', () => {
+      process.env.PALANTIR_MCP_PACKAGE = 'evil@1.0.0'
+      expect(() => resolvePalantirMcpPackageSpec()).toThrow(/must start with @palantir\/mcp@/)
     })
   })
 })
