@@ -111,11 +111,93 @@ describe('preflightChecks', () => {
       ;(global.fetch as any).mockResolvedValueOnce({
         ok: false,
         status: 500,
-        json: () => Promise.resolve({}),
+        text: () => Promise.resolve('{}'),
       })
       await expect(checkPackageAvailability(npmRegistry, foundryToken)).rejects.toThrow(
         PackageFetchError,
       )
+    })
+
+    it('should report the HTTP status when the registry returns an HTML error body', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('<html><body>Unauthorized</body></html>'),
+      })
+
+      const error = await checkPackageAvailability(npmRegistry, foundryToken).catch((e) => e)
+
+      expect(error).toBeInstanceOf(PackageFetchError)
+      expect((error as PackageFetchError).cause).toMatchObject({
+        message: expect.stringContaining('unexpected status 401'),
+      })
+      expect(consoleError).toHaveBeenCalledWith('<html><body>Unauthorized</body></html>')
+    })
+
+    it('should report the HTTP status when the registry returns an empty error body', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: () => Promise.resolve(''),
+      })
+
+      const error = await checkPackageAvailability(npmRegistry, foundryToken).catch((e) => e)
+
+      expect(error).toBeInstanceOf(PackageFetchError)
+      expect((error as PackageFetchError).cause).toMatchObject({
+        message: expect.stringContaining('unexpected status 403'),
+      })
+      expect(consoleError).toHaveBeenCalledWith('<empty response body>')
+    })
+
+    it('should still log a JSON error body as structured output', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: () => Promise.resolve('{"errorCode":"NOT_FOUND"}'),
+      })
+
+      const error = await checkPackageAvailability(npmRegistry, foundryToken).catch((e) => e)
+
+      expect(error).toBeInstanceOf(PackageFetchError)
+      expect((error as PackageFetchError).cause).toMatchObject({
+        message: expect.stringContaining('unexpected status 404'),
+      })
+      expect(consoleError).toHaveBeenCalledWith({ errorCode: 'NOT_FOUND' })
+    })
+
+    it('should truncate an oversized non-JSON error body', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve('x'.repeat(5000)),
+      })
+
+      const error = await checkPackageAvailability(npmRegistry, foundryToken).catch((e) => e)
+
+      expect(error).toBeInstanceOf(PackageFetchError)
+      expect(consoleError).toHaveBeenCalledWith(`${'x'.repeat(500)}... (truncated)`)
+    })
+
+    it('should report the HTTP status when the error body cannot be read', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      ;(global.fetch as any).mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: () => Promise.reject(new Error('socket hang up')),
+      })
+
+      const error = await checkPackageAvailability(npmRegistry, foundryToken).catch((e) => e)
+
+      expect(error).toBeInstanceOf(PackageFetchError)
+      expect((error as PackageFetchError).cause).toMatchObject({
+        message: expect.stringContaining('unexpected status 503'),
+      })
+      expect(consoleError).toHaveBeenCalledWith('<unreadable response body>')
     })
   })
 
