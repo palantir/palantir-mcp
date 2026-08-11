@@ -106,6 +106,37 @@ export async function validateFoundryToken(
   throw new NoTokenAvailableError(foundryApiUrl.hostname)
 }
 
+const MAX_LOGGED_BODY_LENGTH = 500
+
+/**
+ * Reads an error response body without letting its content type mask the status.
+ *
+ * Artifact registries fronted by SSO or a corporate proxy answer with an HTML
+ * page or an empty body rather than JSON. `Response.json()` rejects on those,
+ * and because the rejection escapes the same `try` block that reports the
+ * status, the only actionable detail is replaced by a JSON syntax error.
+ */
+async function readErrorBody(resp: Response): Promise<unknown> {
+  let body: string
+  try {
+    body = await resp.text()
+  } catch {
+    return '<unreadable response body>'
+  }
+
+  if (body.trim() === '') {
+    return '<empty response body>'
+  }
+
+  try {
+    return JSON.parse(body)
+  } catch {
+    return body.length > MAX_LOGGED_BODY_LENGTH
+      ? `${body.slice(0, MAX_LOGGED_BODY_LENGTH)}... (truncated)`
+      : body
+  }
+}
+
 export async function checkPackageAvailability(
   npmRegistry: URL,
   foundryToken: string,
@@ -119,7 +150,7 @@ export async function checkPackageAvailability(
     }
     const resp = await fetch(packageMetadataUrl, requestOptions)
     if (!resp.ok) {
-      console.error(await resp.json())
+      console.error(await readErrorBody(resp))
 
       throw new Error(
         `Retrieving the Palantir MCP package responded with unexpected status ${resp.status}`,
