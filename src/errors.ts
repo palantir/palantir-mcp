@@ -76,6 +76,19 @@ export class NoTokenAvailableError extends McpError {
   }
 }
 
+export class McpLaunchError extends McpError {
+  constructor(cause: unknown) {
+    super(
+      `Unable to start the Palantir MCP server. Please ensure:
+- Node.js 18 or higher and npm are installed and available on your PATH.
+- If you launch this server from an MCP client, that client may not inherit your
+  shell PATH. Configure it with an absolute path to node/npx if npx cannot be found.`,
+      cause,
+    )
+    this.name = 'McpLaunchError'
+  }
+}
+
 export class PackageFetchError extends McpError {
   constructor(cause: unknown) {
     super(
