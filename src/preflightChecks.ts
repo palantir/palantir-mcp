@@ -12,7 +12,8 @@ import {
   PackageFetchError,
 } from './errors.js'
 import { parseGitToken } from './utils/gitConfigParser.js'
-import { loadCachedToken } from './utils/tokenCache.js'
+import { loadCachedToken, saveCachedToken } from './utils/tokenCache.js'
+import { withTokenCacheLock } from './utils/tokenCacheLock.js'
 import { TokenRefreshUtils } from './utils/tokenRefreshUtils.js'
 
 export function checkNodeVersion(): void {
@@ -60,6 +61,17 @@ async function bootstrapTokenFromGitConfig(foundryApiUrl: URL): Promise<string |
  *   3. Git token bootstrap (browser auth).
  */
 export async function validateFoundryToken(
+  foundryApiUrl: URL,
+  cliToken: string | undefined,
+): Promise<string> {
+  return withTokenCacheLock(async () => {
+    const token = await validateFoundryTokenLocked(foundryApiUrl, cliToken)
+    saveCachedToken(foundryApiUrl.origin, token)
+    return token
+  })
+}
+
+async function validateFoundryTokenLocked(
   foundryApiUrl: URL,
   cliToken: string | undefined,
 ): Promise<string> {
