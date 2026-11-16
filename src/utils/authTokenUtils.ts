@@ -6,7 +6,6 @@
 
 import { AuthoringApi } from '@api/authoringApi.js'
 import { MultipassApi } from '@api/multipassApi.js'
-import { isConjureError } from 'conjure-client'
 import { InvalidAuthTokenError } from 'src/errors.js'
 import {
   isExpiredTokenError,
@@ -20,7 +19,9 @@ export async function isTokenExpired(
 ): Promise<boolean> {
   try {
     const response = await multipassApi.getTokenTimeToLiveInSeconds()
-
+    if (typeof response !== 'number' || !Number.isFinite(response)) {
+      throw new Error('Invalid token TTL response')
+    }
     return response < minimumTimeToLive
   } catch (error: unknown) {
     // Token was signed by a different Foundry stack — cannot be refreshed here.
@@ -33,14 +34,9 @@ export async function isTokenExpired(
       return true
     }
 
-    // Any other Conjure error (403 RequestBlocked, etc.) means the token is invalid
-    // for this stack — do not attempt browser auth.
-    if (isConjureError(error)) {
-      throw new InvalidAuthTokenError(multipassApi.context.apiUrl.hostname)
-    }
-
-    // Non-Conjure errors (network issues, etc.) — assume expired and attempt refresh.
-    return true
+    // Network, timeout and server errors do not prove expiry. Fail closed rather
+    // than revoking a peer's fresh token with another browser authentication.
+    throw error
   }
 }
 

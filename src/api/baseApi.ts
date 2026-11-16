@@ -19,6 +19,8 @@ export class BaseApi {
     this.fetchBridge = new FetchBridge({
       baseUrl: `https://${context.apiUrl.hostname}/${baseApiPath}`,
       token: () => context.token,
+      fetch: (url, init) =>
+        fetch(url, { ...init, signal: context.signal ?? AbortSignal.timeout(10_000) }),
       userAgent: {
         productName: 'com.palantir.palantir-mcp-cli',
         productVersion: getPackageVersion(),
