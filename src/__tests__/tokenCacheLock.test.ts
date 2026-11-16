@@ -6,7 +6,19 @@
 
 import { execFile, spawn } from 'child_process'
 import { once } from 'events'
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'fs/promises'
+import {
+  cp,
+  copyFile,
+  symlink,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
@@ -19,6 +31,7 @@ let bundle: string
 
 beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), 'mcp-auth-lock-'))
+  await symlink(path.resolve('node_modules'), path.join(directory, 'node_modules'), 'junction')
   bundle = path.join(directory, 'lock.cjs')
   await build({
     entryPoints: [path.resolve('src/utils/tokenCacheLock.ts')],
@@ -52,6 +65,38 @@ async function home() {
 }
 
 describe('kernel token cache lock', () => {
+  it('loads without native binaries but refuses to run an unlocked operation', async () => {
+    const fixture = await mkdtemp(path.join(directory, 'missing-addon-'))
+    const addon = path.join(fixture, 'node_modules', 'fs-native-extensions')
+    await cp(path.resolve('node_modules/fs-native-extensions'), addon, {
+      recursive: true,
+      dereference: true,
+      // cspell:ignore prebuilds
+      filter: (source) => path.basename(source) !== 'prebuilds',
+    })
+    const isolated = path.join(fixture, 'lock.cjs')
+    await copyFile(bundle, isolated)
+    const h = await home()
+    const result = exec(
+      process.execPath,
+      [
+        '-e',
+        `
+            const { withTokenCacheLock } = require(${JSON.stringify(isolated)});
+            console.log("loaded");
+            withTokenCacheLock(async () => console.log("unsafe"))
+                .catch(error => { console.error(error); process.exitCode = 1; });
+        `,
+      ],
+      { env: env(h), timeout: 5000 },
+    )
+    await expect(result).rejects.toMatchObject({
+      stdout: 'loaded\n',
+      stderr: expect.stringContaining('Native token-cache locking is unavailable'),
+    })
+    await expect(stat(path.join(h, '.palantir'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('serializes processes and preserves updates for different hosts', async () => {
     const h = await home()
     await mkdir(path.join(h, '.palantir'))
@@ -193,15 +238,17 @@ describe('kernel token cache lock', () => {
       `
       const original = global.setTimeout;
       global.setTimeout = (fn, ms, ...args) => original(fn, ms === 90000 ? 30 : ms, ...args);
-      let aborted = false, waiterEntered = false;
+      let aborted = false, waiterEntered = false, entered;
+      const ready = new Promise(resolve => { entered = resolve; });
       const operation = withTokenCacheLock(async signal => {
+        entered();
         await new Promise(resolve => signal.addEventListener('abort', resolve, {once:true}));
         aborted = signal.aborted;
         await new Promise(r => original(r, 150));
         if (waiterEntered) throw new Error('released before callback stopped');
       });
       const rejected = operation.catch(e => e.message);
-      await new Promise(r => original(r, 10));
+      await ready;
       await withTokenCacheLock(async () => { waiterEntered = true; });
       console.log(JSON.stringify({aborted, waiterEntered, error: await rejected}));
     `,

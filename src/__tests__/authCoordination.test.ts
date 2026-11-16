@@ -5,7 +5,7 @@
  */
 
 import { execFile } from 'child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { cp, copyFile, symlink, mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
@@ -82,6 +82,7 @@ async function bundle(root: string, server: boolean, name: string) {
 }
 beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), 'mcp-auth-production-'))
+  await symlink(path.resolve('node_modules'), path.join(directory, 'node_modules'), 'junction')
   ownBundle = await bundle(process.cwd(), internal, 'own')
   if (process.env.MCP_AUTH_PEER_ROOT)
     peerBundle = await bundle(process.env.MCP_AUTH_PEER_ROOT, !internal, 'peer')
@@ -143,6 +144,36 @@ async function verify(h: string, results: { stdout: string }[]) {
   expect(saved.extra).toBe('preserved')
 }
 describe('production authentication across processes', () => {
+  it('uses a valid supplied token without native binaries but refuses unlocked refresh', async () => {
+    const fixture = await mkdtemp(path.join(directory, 'missing-addon-'))
+    await cp(
+      path.resolve('node_modules/fs-native-extensions'),
+      path.join(fixture, 'node_modules/fs-native-extensions'),
+      {
+        recursive: true,
+        dereference: true,
+        filter: (source) => path.basename(source) !== 'prebuilds',
+      },
+    )
+    const isolated = path.join(fixture, 'preflight.cjs')
+    await copyFile(ownBundle, isolated)
+    const h = await home()
+    const cache = path.join(h, '.palantir', 'mcp-config.json')
+    const before = await readFile(cache, 'utf8')
+    const result = await run(
+      h,
+      isolated,
+      false,
+      "console.log(await pkg.validateFoundryToken(url, 'valid.cli.sig'));",
+    )
+    expect(result.stdout.trim()).toBe('valid.cli.sig')
+    await expect(run(h, isolated, false)).rejects.toThrow(
+      'Native token-cache locking is unavailable',
+    )
+    await expect(readFile(path.join(h, 'browser.log'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(cache, 'utf8')).toBe(before)
+  })
+
   it('eight processes share one browser flow and persist the result', async () => {
     const h = await home()
     await verify(h, await Promise.all(Array.from({ length: 8 }, () => run(h, ownBundle, internal))))

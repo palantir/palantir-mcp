@@ -8,7 +8,6 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { setTimeout as delay } from 'timers/promises'
-import { tryLock } from 'fs-native-extensions'
 
 /**
  * Shared local-filesystem protocol with the other MCP package.
@@ -20,6 +19,14 @@ export async function withTokenCacheLock<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   waitTimeoutMs = 180_000,
 ): Promise<T> {
+  // Supplied-token/non-interactive paths must not require a native addon.
+  // Load it only when coordination is needed, and never authenticate unlocked.
+  const { tryLock } = await import('fs-native-extensions').catch((cause) => {
+    throw new Error(
+      'Native token-cache locking is unavailable; refusing unlocked authentication.',
+      { cause },
+    )
+  })
   const directory = path.join(os.homedir(), '.palantir')
   await fs.mkdir(directory, { recursive: true, mode: 0o700 })
   const file = await fs.open(path.join(directory, 'mcp-config.json.lock'), 'a', 0o600)
