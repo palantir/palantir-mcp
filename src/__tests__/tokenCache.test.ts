@@ -60,6 +60,16 @@ describe('tokenCache', () => {
   })
 
   describe('saveCachedToken', () => {
+    it('reports persistence failures to the authentication caller', () => {
+      vi.spyOn(fs, 'readFileSync').mockReturnValue(VALID_CONFIG)
+      vi.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+        throw new Error('disk full')
+      })
+      expect(() => saveCachedToken('https://example.palantirfoundry.com', 'token')).toThrow(
+        'disk full',
+      )
+    })
+
     let writtenContent: string
 
     beforeEach(() => {

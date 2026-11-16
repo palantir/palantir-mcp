@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "clean": "rimraf dist",
-    "bundle": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=node --target=node18 --sourcemap --external:@osdk/* --external:commander",
+    "bundle": "esbuild src/index.ts --bundle --outfile=dist/index.js --format=esm --platform=node --target=node18 --sourcemap --external:@osdk/* --external:commander --external:fs-native-extensions",
     "build": "npm run clean && npm run bundle && chmod +x dist/index.js",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -66,7 +66,8 @@
   },
   "dependencies": {
     "commander": "^14.0.1",
-    "conjure-client": "^2.15.0"
+    "conjure-client": "^2.15.0",
+    "fs-native-extensions": "1.5.3"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

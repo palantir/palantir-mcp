@@ -23,8 +23,9 @@ export class TokenRefreshUtils {
   constructor(
     private readonly apiUrl: URL,
     readonly currentToken: string,
+    private readonly signal?: AbortSignal,
   ) {
-    const httpRequestContext: HttpRequestContext = { apiUrl, token: currentToken }
+    const httpRequestContext: HttpRequestContext = { apiUrl, token: currentToken, signal }
     this.authoringApi = new AuthoringApi(httpRequestContext)
     this.multipassApi = new MultipassApi(httpRequestContext)
   }
@@ -37,6 +38,7 @@ export class TokenRefreshUtils {
     const secret = this.generateSecret()
     const authorizationUrl = this.getAuthorizationUrl(secret)
 
+    this.signal?.throwIfAborted()
     await this.openBrowser(authorizationUrl)
 
     const newToken: string = await this.pollForToken(secret)
@@ -83,7 +85,7 @@ export class TokenRefreshUtils {
           break
       }
 
-      exec(command, (error) => {
+      exec(command, { timeout: 10_000, signal: this.signal }, (error) => {
         if (error) {
           reject(error)
         } else {
@@ -98,9 +100,12 @@ export class TokenRefreshUtils {
     const pollIntervalMs = 1000
     const maxAttempts = timeoutSeconds
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const deadline = Date.now() + timeoutSeconds * 1000
+    for (let attempt = 0; attempt < maxAttempts && Date.now() < deadline; attempt++) {
+      this.signal?.throwIfAborted()
       const token: string | undefined = await retrieveTokenFromSecret(secret, this.authoringApi)
 
+      this.signal?.throwIfAborted()
       if (token) {
         return token
       }

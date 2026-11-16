@@ -86,5 +86,6 @@ export function saveCachedToken(foundryHost: string, token: string): void {
     saveConfig(config)
   } catch (error: unknown) {
     console.error('Failed to save token to cache:', error)
+    throw error
   }
 }

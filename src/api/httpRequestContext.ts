@@ -7,4 +7,5 @@
 export interface HttpRequestContext {
   apiUrl: URL
   token: string
+  signal?: AbortSignal
 }

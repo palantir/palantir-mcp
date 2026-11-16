@@ -23,12 +23,27 @@ import * as gitConfigParser from '../utils/gitConfigParser.js'
 import * as tokenCache from '../utils/tokenCache.js'
 import { TokenRefreshUtils } from '../utils/tokenRefreshUtils.js'
 
+vi.mock('../utils/tokenCacheLock.js', () => {
+  let queue = Promise.resolve()
+  return {
+    withTokenCacheLock: <T>(operation: () => Promise<T>): Promise<T> => {
+      const result = queue.then(operation)
+      queue = result.then(
+        () => undefined,
+        () => undefined,
+      )
+      return result
+    },
+  }
+})
+
 vi.mock('../utils/tokenRefreshUtils.js')
 vi.mock('../utils/tokenCache.js', async (importOriginal) => {
   const original = await importOriginal<typeof tokenCache>()
   return {
     ...original,
     loadCachedToken: vi.fn(),
+    saveCachedToken: vi.fn(),
   }
 })
 vi.mock('../utils/gitConfigParser.js', () => ({
@@ -50,7 +65,7 @@ describe('preflightChecks', () => {
   let mockForceRefreshToken: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     global.fetch = vi.fn()
 
     mockIsExpired = vi.fn().mockResolvedValue(false)
@@ -120,6 +135,21 @@ describe('preflightChecks', () => {
   })
 
   describe('validateFoundryToken', () => {
+    it('rechecks the cache after waiting and saves before releasing the lock', async () => {
+      let cached = CACHED_TOKEN
+      vi.mocked(tokenCache.loadCachedToken).mockImplementation(() => cached)
+      vi.mocked(tokenCache.saveCachedToken).mockImplementation((_host, token) => {
+        cached = token
+      })
+      mockIsExpired.mockImplementation(async (token: string) => token !== REFRESHED_TOKEN)
+      mockForceRefreshToken.mockResolvedValue(REFRESHED_TOKEN)
+      const results = await Promise.all(
+        Array.from({ length: 8 }, () => validateFoundryToken(foundryApiUrl, CLI_TOKEN)),
+      )
+      expect(results).toEqual(Array(8).fill(REFRESHED_TOKEN))
+      expect(mockForceRefreshToken).toHaveBeenCalledTimes(1)
+    })
+
     it('should return the cached token when it is still valid', async () => {
       vi.mocked(tokenCache.loadCachedToken).mockReturnValue(CACHED_TOKEN)
       mockIsExpired.mockResolvedValue(false)

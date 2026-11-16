@@ -47,6 +47,13 @@ describe('authTokenUtils', () => {
       },
     } as unknown as MultipassApi
 
+    it.each([undefined, null, NaN, '3600'])('rejects malformed TTL responses', async (response) => {
+      vi.mocked(mockMultipassApi.getTokenTimeToLiveInSeconds).mockResolvedValue(response as number)
+      await expect(isTokenExpired(mockMultipassApi, 300)).rejects.toThrow(
+        'Invalid token TTL response',
+      )
+    })
+
     it('should return false when token has sufficient time to live', async () => {
       vi.mocked(mockMultipassApi.getTokenTimeToLiveInSeconds).mockResolvedValue(3600)
       const minimumTimeToLive = 300
@@ -74,13 +81,11 @@ describe('authTokenUtils', () => {
       await expect(isTokenExpired(mockMultipassApi, 300)).rejects.toThrow(InvalidAuthTokenError)
     })
 
-    it('should return true when token check fails for other reasons', async () => {
+    it('should reject uncertain expiry without starting authentication', async () => {
       const mockError = new Error('Network error')
       vi.mocked(mockMultipassApi.getTokenTimeToLiveInSeconds).mockRejectedValue(mockError)
 
-      const result = await isTokenExpired(mockMultipassApi, 300)
-
-      expect(result).toBe(true)
+      await expect(isTokenExpired(mockMultipassApi, 300)).rejects.toThrow('Network error')
     })
   })
 

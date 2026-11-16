@@ -24,35 +24,35 @@
  * in production when CircleCI publishes with real version numbers.
  */
 
-import { execSync } from 'child_process'
+import { execFile } from 'child_process'
 import { existsSync, unlinkSync } from 'fs'
+import { promisify } from 'util'
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+
+const exec = promisify(execFile)
 
 describe('Package Version E2E', () => {
   const testVersion = '12.34.56-e2e-test'
   let tarballPath: string
 
-  beforeAll(() => {
+  // npm can take longer than Vitest's default hook deadline. Keep subprocesses
+  // asynchronous so its worker can service RPC messages during build/cleanup.
+  beforeAll(async () => {
     // Save original package.json and package-lock.json in backup files, so we can revert after the test completes
-    execSync('cp package.json package.json.backup', { stdio: 'pipe' })
+    await exec('cp', ['package.json', 'package.json.backup'])
     if (existsSync('package-lock.json')) {
-      execSync('cp package-lock.json package-lock.json.backup', { stdio: 'pipe' })
+      await exec('cp', ['package-lock.json', 'package-lock.json.backup'])
     }
 
-    // Set test version
-    execSync(`npm version ${testVersion} --no-git-tag-version --allow-same-version`, {
-      stdio: 'pipe',
+    await exec('npm', ['version', testVersion, '--no-git-tag-version', '--allow-same-version'], {
+      timeout: 30_000,
     })
+    await exec('npm', ['run', 'build'], { timeout: 30_000 })
+    const { stdout } = await exec('npm', ['pack'], { timeout: 30_000 })
+    tarballPath = stdout.trim().split('\n').pop() || ''
+  }, 100_000)
 
-    // Build the package
-    execSync('npm run build', { stdio: 'pipe' })
-
-    // Pack the package
-    const packOutput = execSync('npm pack', { encoding: 'utf8', stdio: 'pipe' })
-    tarballPath = packOutput.trim().split('\n').pop() || ''
-  })
-
-  afterAll(() => {
+  afterAll(async () => {
     // Clean up the tarball
     if (tarballPath && existsSync(tarballPath)) {
       unlinkSync(tarballPath)
@@ -60,27 +60,29 @@ describe('Package Version E2E', () => {
 
     // Restore original package.json
     if (existsSync('package.json.backup')) {
-      execSync('mv package.json.backup package.json', { stdio: 'pipe' })
+      await exec('mv', ['package.json.backup', 'package.json'])
     }
 
     // Restore original package-lock.json if it was backed up
     if (existsSync('package-lock.json.backup')) {
-      execSync('mv package-lock.json.backup package-lock.json', { stdio: 'pipe' })
+      await exec('mv', ['package-lock.json.backup', 'package-lock.json'])
     } else if (existsSync('package-lock.json')) {
       // Remove package-lock.json if it didn't exist originally
       unlinkSync('package-lock.json')
     }
 
     // Clean up built files
-    execSync('npm run clean', { stdio: 'pipe' })
-  })
+    await exec('npm', ['run', 'clean'], { timeout: 30_000 })
+  }, 40_000)
 
-  it('should work with npx and --version flag', () => {
+  it('should work with npx and --version flag', async () => {
     expect(tarballPath).toBeTruthy()
     expect(existsSync(tarballPath)).toBe(true)
 
     // Test the --version flag using npx
-    const versionOutput = execSync(`npx -y ./${tarballPath} --version`, { encoding: 'utf8' }).trim()
-    expect(versionOutput).toBe(testVersion)
-  })
+    const { stdout } = await exec('npx', ['-y', `./${tarballPath}`, '--version'], {
+      timeout: 30_000,
+    })
+    expect(stdout.trim()).toBe(testVersion)
+  }, 40_000)
 })
