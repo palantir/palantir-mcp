@@ -4,7 +4,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
-import { AuthOptions, authConfig, OAuthConfig } from './config.js'
+import { authConfig, OAuthConfig } from './config.js'
 
 export type AuthMode = 'legacy' | 'oauth'
 
@@ -12,13 +12,8 @@ export type RuntimeSelection =
   | { mode: 'legacy'; argv: string[] }
   | { mode: 'oauth'; config: OAuthConfig; forwardedArgs: string[] }
 
-/** Wrapper-owned OAuth startup options; each takes a value. */
-const OAUTH_VALUE_OPTIONS = {
-  '--oauth-client-id': 'oauthClientId',
-  '--oauth-redirect': 'oauthRedirect',
-  '--oauth-profile': 'oauthProfile',
-  '--oauth-scopes': 'oauthScopes',
-} as const
+/** The only wrapper-owned OAuth value. Client, callback and profile are registered constants. */
+const OAUTH_SCOPES = '--oauth-scopes'
 
 export class RuntimeArgumentError extends Error {}
 
@@ -37,8 +32,8 @@ function isOAuthOption(name: string): boolean {
  * falls back to legacy tokens, cache, Git bootstrap or the project-selection browser flow.
  *
  * Legacy mode removes only the explicit `--auth` selector and forwards all other argv unchanged.
- * OAuth mode consumes wrapper OAuth options and `--foundry-api-url`, rejects `--foundry-token`,
- * and forwards the remaining arguments (for example `--disable-tools`) to the private package.
+ * OAuth mode consumes `--oauth-scopes` and `--foundry-api-url`, rejects `--foundry-token` and
+ * other `--oauth-*` flags, and forwards the remaining arguments to the private package.
  * An inherited `FOUNDRY_TOKEN` environment variable is ignored in OAuth mode.
  */
 export function selectRuntime(argv: string[]): RuntimeSelection {
@@ -75,17 +70,17 @@ export function selectRuntime(argv: string[]): RuntimeSelection {
         throw new RuntimeArgumentError('Expected --auth=legacy or --auth=oauth')
       mode = value
       i = next
-    } else if (name in OAUTH_VALUE_OPTIONS) {
+    } else if (name === OAUTH_SCOPES) {
       const [value, next] = take(i, arg)
-      const key = OAUTH_VALUE_OPTIONS[name as keyof typeof OAUTH_VALUE_OPTIONS]
       if (value === undefined) throw new RuntimeArgumentError(`${name} needs a value`)
-      if (values[key] !== undefined) throw new RuntimeArgumentError(`Specify ${name} only once`)
-      values[key] = value
+      if (values.oauthScopes !== undefined)
+        throw new RuntimeArgumentError(`Specify ${name} only once`)
+      values.oauthScopes = value
       oauthOptionSeen = true
       i = next
     } else if (isOAuthOption(name)) {
       throw new RuntimeArgumentError(
-        `Unsupported OAuth option ${name}; use --auth=oauth with --oauth-client-id, --oauth-redirect, --oauth-scopes or --oauth-profile`,
+        `Unsupported OAuth option ${name}; --auth=oauth accepts --oauth-scopes only`,
       )
     } else {
       legacyArgv.push(arg)
@@ -106,16 +101,9 @@ export function selectRuntime(argv: string[]): RuntimeSelection {
   if (apiUrlCount > 1) throw new RuntimeArgumentError('Specify --foundry-api-url only once')
   if (values.foundryApiUrl === undefined)
     throw new RuntimeArgumentError('--auth=oauth requires --foundry-api-url')
-  const options: AuthOptions = {
-    foundryApiUrl: values.foundryApiUrl,
-    oauthClientId: values.oauthClientId,
-    oauthRedirect: values.oauthRedirect,
-    oauthProfile: values.oauthProfile,
-    oauthScopes: values.oauthScopes,
-  }
   let config: OAuthConfig
   try {
-    config = authConfig(options)
+    config = authConfig(values.foundryApiUrl, values.oauthScopes)
   } catch (error) {
     throw new RuntimeArgumentError((error as Error).message)
   }
@@ -125,9 +113,9 @@ export function selectRuntime(argv: string[]): RuntimeSelection {
 /**
  * Nonsecret v1 handoff argv for the private runtime. The private package reads and refreshes the
  * same protected credential state; no token or refresh credential is placed in argv/environment
- * for it. Defaults and overrides are already resolved so both sides use the same values without
- * relying on the private package's defaults. Explicit private start subcommands are required so
- * the default legacy path is not used.
+ * for it. The registered client, callback, profile and requested scopes are passed explicitly so
+ * both sides use the same binding. Explicit private start subcommands are required so the default
+ * legacy path is not used.
  */
 export function privateRuntimeArgs(config: OAuthConfig, forwardedArgs: string[]): string[] {
   return [

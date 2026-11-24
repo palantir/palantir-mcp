@@ -32,15 +32,6 @@ export interface OAuthConfig {
   scopes: string[]
 }
 
-/** Commander-style option names shared by `auth <command>` and `--auth=oauth` startup. */
-export interface AuthOptions {
-  foundryApiUrl: string
-  oauthClientId?: string
-  oauthRedirect?: string
-  oauthProfile?: string
-  oauthScopes?: string
-}
-
 const SCOPE = /^[\x21\x23-\x5B\x5D-\x7E]+$/
 
 export function parseScopes(value: string | undefined): string[] {
@@ -49,14 +40,13 @@ export function parseScopes(value: string | undefined): string[] {
   return [...new Set(scopes)].sort()
 }
 
-export function authConfig(options: AuthOptions): OAuthConfig {
+/** Registered client, callback and profile. Only the host and requested scopes vary. */
+export function authConfig(foundryApiUrl: string, oauthScopes?: string): OAuthConfig {
   let host: URL
-  let redirect: URL
   try {
-    host = new URL(options.foundryApiUrl)
-    redirect = new URL(options.oauthRedirect ?? PALANTIR_MCP_REDIRECT)
+    host = new URL(foundryApiUrl)
   } catch {
-    throw new Error('Invalid OAuth host or callback URL')
+    throw new Error('Invalid OAuth host')
   }
   if (
     host.protocol !== 'https:' ||
@@ -70,33 +60,11 @@ export function authConfig(options: AuthOptions): OAuthConfig {
       'OAuth host must be an HTTPS origin without credentials, path, query or fragment',
     )
   }
-  if (
-    redirect.protocol !== 'http:' ||
-    redirect.hostname !== '127.0.0.1' ||
-    !redirect.port ||
-    Number(redirect.port) === 0 ||
-    redirect.pathname === '/' ||
-    redirect.username ||
-    redirect.password ||
-    redirect.search ||
-    redirect.hash
-  ) {
-    throw new Error(
-      'OAuth redirect must be an HTTP 127.0.0.1 callback with a nonzero port and path',
-    )
-  }
-  const clientId = options.oauthClientId ?? PALANTIR_MCP_CLIENT_ID
-  if (!clientId || /\s/.test(clientId)) {
-    throw new Error('Specify an approved --oauth-client-id')
-  }
-  const profile = options.oauthProfile ?? 'default'
-  if (!profile.trim()) throw new Error('OAuth profile must not be empty')
-  const scopes = parseScopes(`${options.oauthScopes ?? DEFAULT_OAUTH_SCOPES} ${OFFLINE_ACCESS}`)
   return {
     host: host.origin,
-    clientId,
-    redirect: redirect.href,
-    profile,
-    scopes,
+    clientId: PALANTIR_MCP_CLIENT_ID,
+    redirect: PALANTIR_MCP_REDIRECT,
+    profile: 'default',
+    scopes: parseScopes(`${oauthScopes ?? DEFAULT_OAUTH_SCOPES} ${OFFLINE_ACCESS}`),
   }
 }

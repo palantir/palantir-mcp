@@ -9,7 +9,7 @@ import { constants } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { FileLockError, withFileLock } from '../utils/fileLock.js'
+import { setTimeout as delay } from 'node:timers/promises'
 import { OAuthConfig } from './config.js'
 
 /** Version of the protected credential-state schema shared with the private `@palantir/mcp` runtime. */
@@ -117,38 +117,47 @@ export class OAuthStore {
    * protocol as the private runtime. Only lock acquisition failures are translated.
    */
   async locked<T>(action: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-    let prepared = false
-    let acquired = false
+    let tryLock: (fd: number) => boolean
     try {
-      return await withFileLock(
-        this.lockFile,
-        () => {
-          acquired = true
-          return action()
-        },
-        {
-          prepare: async () => {
-            try {
-              // Creates a missing ~/.palantir with the legacy cache's mode; only mcp-oauth is checked.
-              await fs.mkdir(this.directory, { recursive: true, mode: 0o700 })
-              await this.checkPrivate(this.directory, true)
-            } catch {
-              throw new Error('OAuth storage directory is unavailable or unsafe')
-            }
-            prepared = true
-          },
-          waitTimeoutMs: this.lockWaitMs,
-          signal,
-        },
-      )
-    } catch (error) {
-      if (acquired || signal?.aborted) throw error
-      if (error instanceof FileLockError && error.reason === 'unavailable')
+      ;({ tryLock } = await import('fs-native-extensions'))
+    } catch {
+      throw new Error('OAuth storage locking is unavailable; refusing unlocked credential access')
+    }
+    try {
+      await fs.mkdir(this.directory, { recursive: true, mode: 0o700 })
+      await this.checkPrivate(this.directory, true)
+    } catch {
+      throw new Error('OAuth storage directory is unavailable or unsafe')
+    }
+    let file: fs.FileHandle
+    try {
+      // "a+", not "a": LockFileEx needs read or write-data access, and libuv opens "a" append-only.
+      file = await fs.open(this.lockFile, 'a+', 0o600)
+    } catch {
+      throw new Error('OAuth storage locking is unavailable; refusing unlocked credential access')
+    }
+    const deadline = performance.now() + this.lockWaitMs
+    try {
+      try {
+        while (!tryLock(file.fd)) {
+          signal?.throwIfAborted()
+          const remaining = deadline - performance.now()
+          if (remaining <= 0)
+            throw new Error('OAuth storage busy: another process is still authorizing; retry later')
+          await delay(Math.min(250, remaining), undefined, { signal }).catch((error) => {
+            signal?.throwIfAborted()
+            throw error
+          })
+        }
+        signal?.throwIfAborted()
+      } catch (error) {
+        if (signal?.aborted) throw error
+        if (error instanceof Error && error.message.includes('OAuth storage busy')) throw error
         throw new Error('OAuth storage locking is unavailable; refusing unlocked credential access')
-      if (error instanceof FileLockError)
-        throw new Error('OAuth storage busy: another process is still authorizing; retry later')
-      if (!prepared) throw error
-      throw new Error('OAuth lock unavailable')
+      }
+      return await action()
+    } finally {
+      await file.close()
     }
   }
 

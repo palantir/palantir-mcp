@@ -77,7 +77,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/auth/**/*.ts', 'src/tokenProvider.ts', 'src/legacyTokenProvider.ts'],
+    files: ['src/auth/**/*.ts'],
     rules: {
       'license-header/header': [
         'error',

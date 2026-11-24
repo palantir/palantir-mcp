@@ -141,25 +141,17 @@ npx -y palantir-mcp --auth=oauth \
   --foundry-api-url https://<enrollment>.palantirfoundry.com
 ```
 
-- `--oauth-scopes "<scopes>"` sets the requested scopes. The default is
-  `palantir-mcp:read-metadata palantir-mcp:write-metadata palantir-mcp:read-data palantir-mcp:write-data palantir-mcp:execute`.
-  `offline_access` requests refresh capability; `auth status` reports whether it was granted, and OAuth endpoints are discovered from the server's metadata.
-- `--oauth-profile <name>` keeps separate credentials for the same host.
-- Optional `auth login`, `auth refresh`, `auth status` and `auth logout` commands sign in
-  ahead of time, renew credentials, show credential status, or remove local credentials.
-  Each takes `--foundry-api-url` and the same OAuth overrides as startup; `--auth=oauth`
-  is optional for these commands. Refresh opens browser consent if needed and waits for it to finish.
-  Logout does not revoke server tokens.
+`--oauth-scopes "<scopes>"` sets the requested scopes. The default is
+`palantir-mcp:read-metadata palantir-mcp:write-metadata palantir-mcp:read-data palantir-mcp:write-data palantir-mcp:execute`.
+`offline_access` is added so the login can be renewed. The registered Palantir MCP client and
+callback are always used.
 
-```sh
-npx -y palantir-mcp auth status \
-  --foundry-api-url https://<enrollment>.palantirfoundry.com
-```
-
-Your Foundry environment must permit the OAuth application and requested operations and provide
-a compatible `@palantir/mcp` release. To switch back to token authentication, remove
-`--auth=oauth` (or pass `--auth=legacy`). Legacy authentication remains the default.
-`--foundry-token` cannot be combined with `--auth=oauth`; OAuth does not use `FOUNDRY_TOKEN`.
+OAuth requires `@palantir/mcp` 0.577.0 or newer. If the available release is older, startup
+stops and asks you to use token authentication; it does not switch over by itself.
+Your Foundry environment must permit the OAuth application and requested operations.
+To switch back to token authentication, remove `--auth=oauth` (or pass `--auth=legacy`).
+Legacy authentication remains the default. `--foundry-token` cannot be combined with
+`--auth=oauth`; OAuth does not use `FOUNDRY_TOKEN`.
 
 ## Development
 
@@ -189,10 +181,8 @@ npm run format
 The tool is organized into focused modules:
 
 - `command.ts` - Legacy command-line argument parsing and validation
-- `tokenProvider.ts` - Common token acquisition interface, implemented by `legacyTokenProvider.ts`
-  and `auth/tokenProvider.ts` without mixing credential sources
-- `auth/` - `--auth` mode selection, OAuth PKCE lifecycle, shared v1 credential state, OAuth
-  startup (registry, bounded download, private handoff) and `auth` commands
+- `auth/` - `--auth` mode selection, OAuth PKCE lifecycle, shared v1 credential state and
+  OAuth startup (registry resolution and private handoff)
 - `spawn.ts` - Process spawning and signal handling
 - `registry.ts` - NPM registry URL construction
 - `errors.ts` - Custom error classes for better error handling

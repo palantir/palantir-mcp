@@ -10,26 +10,29 @@ import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { OAuthClient } from '../client.js'
+import { OAuthClient, parseGrantedScopes } from '../client.js'
 import {
   authConfig,
   OAuthConfig,
   PALANTIR_MCP_CLIENT_ID,
-  TOOL_PERMISSION_GROUP_NAMES,
+  PALANTIR_MCP_REDIRECT,
 } from '../config.js'
+import { discoverOAuthMetadata } from '../metadata.js'
 import { Credential, OAuthStore } from '../store.js'
-import { withMetadata } from './fixtures/oauthMetadata.js'
+import { oauthMetadata } from './fixtures/oauthMetadata.js'
 
 let directory: string
 let config: OAuthConfig
 let store: OAuthStore
-const reply = (extra = {}) =>
+const READ = 'palantir-mcp:read-metadata'
+const reply = (extra: Record<string, unknown> = {}) =>
   new Response(
     JSON.stringify({
       access_token: 'synthetic-access',
       refresh_token: 'synthetic-refresh',
       token_type: 'bearer',
       expires_in: 3600,
+      scope: READ,
       ...extra,
     }),
   )
@@ -40,30 +43,10 @@ const record = (extra: Partial<Credential> = {}): Credential => ({
   refreshToken: 'old-refresh',
   expiresAt: 0,
   requestedScopes: config.scopes,
-  grantedScopes: [],
+  grantedScopes: [READ],
   ...extra,
 })
-const seed = async (extra: Partial<Credential> = {}) =>
-  store.locked(() => store.write(record(extra)))
-
-beforeEach(async () => {
-  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'wrapper-oauth-'))
-  const server = createServer()
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  const port = (server.address() as { port: number }).port
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  config = authConfig({
-    foundryApiUrl: 'https://EXAMPLE.com',
-    oauthProfile: 'test',
-    oauthRedirect: `http://127.0.0.1:${port}/oauth2redirect/palantir-mcp`,
-  })
-  store = new OAuthStore(config, directory)
-})
-afterEach(async () => {
-  vi.restoreAllMocks()
-  await fs.rm(directory, { recursive: true, force: true })
-})
-
+const seed = (extra: Partial<Credential> = {}) => store.locked(() => store.write(record(extra)))
 const callback = async (authorization: string, mutate?: (url: URL) => void) => {
   const auth = new URL(authorization)
   const url = new URL(auth.searchParams.get('redirect_uri')!)
@@ -75,220 +58,254 @@ const callback = async (authorization: string, mutate?: (url: URL) => void) => {
   return fetch(url)
 }
 
-describe('public OAuth lifecycle', () => {
-  it('uses PKCE and exact public-client contract; stores credentials without legacy access', async () => {
+beforeEach(async () => {
+  directory = await fs.mkdtemp(path.join(os.tmpdir(), 'wrapper-oauth-'))
+  const listener = createServer()
+  await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve))
+  const port = (listener.address() as { port: number }).port
+  await new Promise<void>((resolve) => listener.close(() => resolve()))
+  const defaults = authConfig('https://example.com')
+  config = { ...defaults, redirect: `http://127.0.0.1:${port}/oauth2redirect/palantir-mcp` }
+  store = new OAuthStore(config, directory)
+})
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await fs.rm(directory, { recursive: true, force: true })
+})
+
+describe('OAuth acquisition', () => {
+  it('uses PKCE S256 once, then stores the credential', async () => {
     let authorize!: URL
-    const request = vi.fn<typeof fetch>().mockResolvedValue(reply())
+    let discovery = 0
+    const request = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).includes('/.well-known/')) {
+        discovery++
+        return new Response(JSON.stringify(oauthMetadata()))
+      }
+      return reply()
+    })
     const browser = async (url: string) => {
       authorize = new URL(url)
       await callback(url)
     }
-    await new OAuthClient(config, store, browser, withMetadata(request)).login()
-    expect(authorize.origin).toBe(config.host)
+    const credential = await new OAuthClient(config, store, browser, request).acquire()
+    expect(discovery).toBe(1)
     expect(authorize.pathname).toBe('/discovered/authorize')
-    expect(authorize.searchParams.get('scope')).toBe(config.scopes.join(' '))
     expect(authorize.searchParams.get('client_id')).toBe(PALANTIR_MCP_CLIENT_ID)
     expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
-    const [target, options] = request.mock.calls[0]
-    expect(target).toBe('https://example.com/discovered/token')
-    expect(options?.redirect).toBe('error')
-    const body = options?.body as URLSearchParams
+    expect(authorize.searchParams.get('scope')).toBe(config.scopes.join(' '))
+    const body = request.mock.calls.find(([url]) => String(url).includes('/token'))?.[1]
+      ?.body as URLSearchParams
     expect(body.get('grant_type')).toBe('authorization_code')
     expect(body.get('redirect_uri')).toBe(config.redirect)
     expect(body.has('client_secret')).toBe(false)
     expect(createHash('sha256').update(body.get('code_verifier')!).digest('base64url')).toBe(
       authorize.searchParams.get('code_challenge'),
     )
-    expect((await store.read())?.accessToken).toBe('synthetic-access')
-    await new OAuthClient(config, store).logout()
-    expect(await store.read()).toBeUndefined()
+    expect(credential.accessToken).toBe('synthetic-access')
+    expect(parseGrantedScopes(undefined)).toBeNull()
+    expect(parseGrantedScopes('')).toEqual([])
+    expect(parseGrantedScopes(`${READ} offline_access`)).toEqual([READ])
   })
 
-  it.each(['state', 'denial', 'missing-code', 'duplicate-code', 'duplicate-state'])(
-    'rejects %s and closes listener',
+  it.each(['state', 'denial', 'missing-code', 'cancel', 'browser'])(
+    'fails closed on %s and closes the listener',
     async (kind) => {
-      const request = vi.fn<typeof fetch>()
+      const controller = new AbortController()
+      const request = vi.fn<typeof fetch>(async (url) =>
+        String(url).includes('/.well-known/')
+          ? new Response(JSON.stringify(oauthMetadata()))
+          : reply(),
+      )
       const client = new OAuthClient(
         config,
         store,
         async (url) => {
-          await callback(url, (returned) => {
-            if (kind === 'state') returned.searchParams.set('state', 'wrong')
-            if (kind === 'denial') returned.searchParams.set('error', 'access_denied')
-            if (kind === 'missing-code') returned.searchParams.delete('code')
-            if (kind === 'duplicate-code') returned.searchParams.append('code', 'another')
-            if (kind === 'duplicate-state') returned.searchParams.append('state', 'another')
-          })
+          if (kind === 'cancel') controller.abort()
+          if (kind === 'browser') throw new Error('browser unavailable')
+          if (kind === 'state' || kind === 'denial' || kind === 'missing-code') {
+            await callback(url, (returned) => {
+              if (kind === 'state') returned.searchParams.set('state', 'wrong')
+              if (kind === 'denial') returned.searchParams.set('error', 'access_denied')
+              if (kind === 'missing-code') returned.searchParams.delete('code')
+            })
+          }
         },
-        withMetadata(request),
+        request,
       )
-      await expect(client.login()).rejects.toThrow('authorization')
-      expect(request).not.toHaveBeenCalled()
+      await expect(client.acquire({ signal: controller.signal })).rejects.toThrow()
       await expect(fetch(config.redirect)).rejects.toThrow()
-      // Only the permanent lock file remains; no credential or temporary file.
       expect(await fs.readdir(directory)).toEqual([`${store.binding}.lock`])
     },
   )
 
-  it('ignores unrelated path and accepts the subsequent exact callback', async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValue(reply())
-    await new OAuthClient(
-      config,
-      store,
-      async (url) => {
-        const wrong = await callback(url, (returned) => {
-          returned.pathname = '/other'
-        })
-        expect(wrong.status).toBe(404)
-        await callback(url)
-      },
-      withMetadata(request),
-    ).login()
-    expect(request).toHaveBeenCalledOnce()
-  })
-
-  it.each(['timeout', 'cancel', 'browser'])('cleans up on %s', async (kind) => {
-    const controller = new AbortController()
-    const client = new OAuthClient(
+  it('persists a rotated refresh token and keeps the previous one only when omitted', async () => {
+    await seed()
+    const request = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).includes('/.well-known/'))
+        return new Response(JSON.stringify(oauthMetadata()))
+      const sent = options?.body as URLSearchParams
+      expect(sent.get('refresh_token')).toBe('old-refresh')
+      expect(sent.has('scope')).toBe(false)
+      return reply({ refresh_token: 'rotated', scope: READ })
+    })
+    const credential = await new OAuthClient(
       config,
       store,
       async () => {
-        if (kind === 'cancel') controller.abort()
-        if (kind === 'browser') throw new Error('browser unavailable')
+        throw new Error('no browser')
       },
-      withMetadata(vi.fn()),
-      20,
-    )
-    await expect(client.login(controller.signal)).rejects.toThrow()
-    await expect(fetch(config.redirect)).rejects.toThrow()
-    expect(await fs.readdir(directory)).toEqual([`${store.binding}.lock`])
-  })
-
-  it('serializes independent refresh clients and persists rotation before the next read', async () => {
-    await seed()
-    const request = vi.fn<typeof fetch>().mockImplementation(async (_url, options) => {
-      const old = (options?.body as URLSearchParams).get('refresh_token')
-      return reply({ refresh_token: old + '-rotated' })
+      request,
+    ).acquire()
+    expect(credential).toMatchObject({
+      accessToken: 'synthetic-access',
+      refreshToken: 'rotated',
+      grantedScopes: [READ],
     })
-    await Promise.all([
-      new OAuthClient(config, store, undefined, withMetadata(request)).refresh(),
-      new OAuthClient(
-        config,
-        new OAuthStore(config, directory),
-        undefined,
-        withMetadata(request),
-      ).refresh(),
-    ])
-    expect((await store.read())?.refreshToken).toBe('old-refresh-rotated-rotated')
-    expect(request).toHaveBeenCalledTimes(2)
+    await seed({ refreshToken: 'old-refresh' })
+    request.mockImplementation(async (url) =>
+      String(url).includes('/.well-known/')
+        ? new Response(JSON.stringify(oauthMetadata()))
+        : reply({ refresh_token: undefined }),
+    )
+    await new OAuthClient(
+      config,
+      store,
+      async () => {
+        throw new Error('no browser')
+      },
+      request,
+    ).acquire()
+    expect((await store.read())?.refreshToken).toBe('old-refresh')
   })
 
-  it.each(['invalid-grant', 'network', 'malformed', 'non-string-scope', 'save'])(
-    'invalidates uncertain refresh state after %s failure',
-    async (kind) => {
-      await seed()
-      const request = vi.fn<typeof fetch>().mockImplementation(async () => {
-        if (kind === 'network') throw new Error('synthetic-secret')
-        if (kind === 'invalid-grant') return new Response('synthetic-secret', { status: 400 })
-        if (kind === 'malformed') return reply({ expires_in: 'synthetic-secret' })
-        if (kind === 'non-string-scope') return reply({ scope: ['synthetic'] })
-        return reply()
-      })
-      if (kind === 'save') vi.spyOn(store, 'write').mockRejectedValue(new Error('write failure'))
-      const browser = vi.fn(async () => {
-        throw new Error('browser unavailable')
-      })
-      const client = new OAuthClient(config, store, browser, withMetadata(request))
-      await expect(client.refresh()).rejects.toThrow()
-      expect(await store.read()).toBeUndefined()
-      await expect(client.refresh()).rejects.toThrow('browser unavailable')
-      expect(request).toHaveBeenCalledOnce()
-    },
-  )
+  it('opens exactly one consent after a rejected refresh and not after an uncertain failure', async () => {
+    await seed()
+    const browser = vi.fn(async (url: string) => {
+      await callback(url)
+    })
+    const rejected = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).includes('/.well-known/'))
+        return new Response(JSON.stringify(oauthMetadata()))
+      if (
+        rejected.mock.calls.filter(([target]) => String(target).includes('/token')).length === 1
+      ) {
+        return new Response('denied', { status: 400 })
+      }
+      return reply()
+    })
+    await new OAuthClient(config, store, browser, rejected).acquire()
+    expect(browser).toHaveBeenCalledOnce()
+
+    await seed()
+    const noBrowser = vi.fn(async () => {
+      throw new Error('browser unavailable')
+    })
+    const network = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).includes('/.well-known/'))
+        return new Response(JSON.stringify(oauthMetadata()))
+      throw new Error('synthetic-secret')
+    })
+    await expect(new OAuthClient(config, store, noBrowser, network).acquire()).rejects.toThrow(
+      'exchange failed',
+    )
+    expect(noBrowser).not.toHaveBeenCalled()
+    expect(await store.read()).toBeUndefined()
+  })
+
+  it('does not consume a refresh token when discovery fails', async () => {
+    await seed({ refreshToken: 'REFRESH' })
+    const request = vi.fn<typeof fetch>(async () => {
+      throw new Error('SECRET')
+    })
+    const browser = vi.fn()
+    const client = new OAuthClient(config, store, browser, request)
+    await expect(client.acquire()).rejects.toThrow('OAuth metadata discovery failed')
+    expect(browser).not.toHaveBeenCalled()
+    expect((await store.read())?.refreshToken).toBe('REFRESH')
+    expect(request.mock.calls.every(([url]) => !String(url).includes('/token'))).toBe(true)
+  })
+
+  it('serializes two stores so a rotating refresh token is not replayed', async () => {
+    await seed()
+    const request = vi.fn<typeof fetch>(async (url, options) => {
+      if (String(url).includes('/.well-known/'))
+        return new Response(JSON.stringify(oauthMetadata()))
+      const old = (options?.body as URLSearchParams).get('refresh_token')
+      return reply({ refresh_token: `${old}-next` })
+    })
+    const browser = async () => {
+      throw new Error('no browser')
+    }
+    const [a, b] = await Promise.all([
+      new OAuthClient(config, store, browser, request).acquire(),
+      new OAuthClient(config, new OAuthStore(config, directory), browser, request).acquire(),
+    ])
+    expect(request.mock.calls.filter(([url]) => String(url).includes('/token'))).toHaveLength(1)
+    expect(a.accessToken).toBe(b.accessToken)
+  })
 })
 
-describe('configuration and protected storage', () => {
-  it.each(['host', 'clientId', 'profile', 'scopes', 'redirect'] as const)(
-    'isolates %s',
-    async (key) => {
-      await seed()
-      const other = {
-        ...config,
-        [key]: key === 'scopes' ? ['offline_access', 'other'] : config[key] + 'other',
-      }
-      expect(await new OAuthStore(other, directory).read()).toBeUndefined()
-    },
-  )
-  it('normalizes scope order and duplicates', () => {
-    expect(new OAuthStore({ ...config, scopes: ['b', 'a', 'a'] }, directory).binding).toBe(
-      new OAuthStore({ ...config, scopes: ['a', 'b'] }, directory).binding,
-    )
-  })
-  it.each(['http://host', 'https://host/path', 'https://user:secret@host', 'https://host?secret'])(
-    'rejects unsafe host %s',
-    (host) => {
-      expect(() =>
-        authConfig({
-          foundryApiUrl: host,
-        }),
-      ).toThrow()
-    },
-  )
-  it('defaults to the dedicated public MCP client and exact callback', () => {
-    expect(authConfig({ foundryApiUrl: config.host })).toEqual({
-      host: config.host,
-      clientId: 'e9036da0035845c988db3a6536f08a42',
-      redirect: 'http://127.0.0.1:49152/oauth2redirect/palantir-mcp',
-      profile: 'default',
-      scopes: ['offline_access', ...TOOL_PERMISSION_GROUP_NAMES].sort(),
+describe('authorization server metadata', () => {
+  const host = 'https://example.com'
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+  it('uses the RFC path and falls back to root only after 404', async () => {
+    const rfc = vi.fn<typeof fetch>(async () => json(oauthMetadata()))
+    expect(await discoverOAuthMetadata(host, rfc)).toEqual(oauthMetadata())
+    expect(rfc).toHaveBeenCalledOnce()
+    expect(rfc.mock.calls[0][0]).toBe(`${host}/.well-known/oauth-authorization-server/multipass`)
+    expect(rfc.mock.calls[0][1]).toMatchObject({
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
     })
+    const fallback = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(json(oauthMetadata()))
+    expect(await discoverOAuthMetadata(host, fallback)).toEqual(oauthMetadata())
+    expect(String(fallback.mock.calls[1][0])).toBe(`${host}/.well-known/oauth-authorization-server`)
+    const unavailable = vi.fn<typeof fetch>(async () => new Response(null, { status: 500 }))
+    await expect(discoverOAuthMetadata(host, unavailable)).rejects.toThrow(
+      'OAuth metadata discovery failed',
+    )
+    expect(unavailable).toHaveBeenCalledOnce()
   })
   it.each([
-    { oauthClientId: 'approved' },
-    { oauthRedirect: 'http://127.0.0.1:1234/registered' },
-    { oauthClientId: 'approved', oauthRedirect: 'http://127.0.0.1:1234/registered' },
-  ])('preserves explicit overrides %j', (overrides) => {
-    expect(authConfig({ foundryApiUrl: config.host, ...overrides })).toMatchObject({
-      clientId: overrides.oauthClientId ?? 'e9036da0035845c988db3a6536f08a42',
-      redirect: overrides.oauthRedirect ?? 'http://127.0.0.1:49152/oauth2redirect/palantir-mcp',
+    { issuer: `${host}/other` },
+    { authorization_endpoint: 'https://evil.example/authorize' },
+    { token_endpoint: 'http://example.com/token' },
+    { code_challenge_methods_supported: ['plain'] },
+    { grant_types_supported: ['authorization_code'] },
+    { grant_types_supported: ['refresh_token'] },
+  ])('rejects unsafe metadata %j', async (change) => {
+    const request = vi.fn<typeof fetch>(async () => json({ ...oauthMetadata(), ...change }))
+    await expect(discoverOAuthMetadata(host, request)).rejects.toThrow(
+      'OAuth metadata discovery failed',
+    )
+    expect(request).toHaveBeenCalledOnce()
+  })
+})
+
+describe('registered configuration', () => {
+  it('uses the registered client, callback and profile, and accepts scopes', () => {
+    expect(authConfig('https://EXAMPLE.com')).toEqual({
+      host: 'https://example.com',
+      clientId: PALANTIR_MCP_CLIENT_ID,
+      redirect: PALANTIR_MCP_REDIRECT,
+      profile: 'default',
+      scopes: authConfig('https://example.com').scopes,
     })
-  })
-  it.each([{ oauthClientId: '' }, { oauthClientId: 'invalid client' }, { oauthRedirect: '' }])(
-    'rejects invalid explicit overrides rather than using defaults: %j',
-    (overrides) => {
-      expect(() => authConfig({ foundryApiUrl: config.host, ...overrides })).toThrow()
-    },
-  )
-  it('requires a safe redirect', () => {
-    expect(() =>
-      authConfig({
-        foundryApiUrl: config.host,
-        oauthRedirect: 'http://0.0.0.0:1234/callback',
-      }),
-    ).toThrow()
-  })
-  // POSIX only: Windows has no owner/mode bits (see windows.test.ts).
-  it.skipIf(process.platform === 'win32')(
-    'creates private records and refuses unsafe directories/records and symlinks',
-    async () => {
-      await seed()
-      const file = path.join(directory, `${store.binding}.json`)
-      expect((await fs.stat(file)).mode & 0o777).toBe(0o600)
-      await fs.chmod(file, 0o644)
-      await expect(store.read()).rejects.toThrow('safely')
-      await fs.rm(file)
-      await fs.symlink('/not-a-real-secret-file', file)
-      await expect(store.read()).rejects.toThrow('safely')
-      await fs.chmod(directory, 0o755)
-      await expect(store.locked(async () => {})).rejects.toThrow('unsafe')
-    },
-  )
-  it('redacts malformed records and rejects wrong binding', async () => {
-    await seed()
-    const file = path.join(directory, `${store.binding}.json`)
-    await fs.writeFile(file, 'synthetic-secret')
-    await expect(store.read()).rejects.toThrow('could not be read safely')
-    await expect(store.write(record({ binding: 'wrong' }))).rejects.toThrow('binding')
-    await expect(store.write(record({ requestedScopes: ['other'] }))).rejects.toThrow('binding')
+    expect(authConfig('https://example.com', `${READ} ${READ}`).scopes).toEqual([
+      'offline_access',
+      READ,
+    ])
+    for (const host of [
+      'http://host',
+      'https://host/path',
+      'https://user:secret@host',
+      'https://host?secret',
+    ]) {
+      expect(() => authConfig(host)).toThrow()
+    }
   })
 })

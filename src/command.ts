@@ -27,7 +27,7 @@ export function createProgram(): Command {
   program.version(getPackageVersion())
   program.addHelpText(
     'after',
-    '\nAuthentication: --auth=legacy (default) or --auth=oauth (Palantir MCP client/callback defaults).\nOptional overrides: --oauth-client-id, --oauth-redirect, --oauth-scopes, --oauth-profile.\nNo automatic fallback between modes. OAuth credentials: palantir-mcp auth <login|refresh|logout|status> --help\n',
+    '\nAuthentication: --auth=legacy (default) or --auth=oauth.\nOptional: --oauth-scopes "<scopes>" (offline_access is added; the registered client and callback are used).\nNo automatic fallback between modes.\n',
   )
 
   const foundryApiUrlOption = new Option(

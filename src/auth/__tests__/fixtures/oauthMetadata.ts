@@ -14,7 +14,7 @@ export const oauthMetadata = (host = 'https://example.com') => ({
 
 const transports = new WeakMap<typeof fetch, typeof fetch>()
 
-/** Keep existing token-exchange assertions separate from discovery (covered in metadata.test.ts). */
+/** Serve discovery locally so token-exchange assertions can ignore it. */
 export function withMetadata(request: typeof fetch): typeof fetch {
   let transport = transports.get(request)
   if (!transport) {

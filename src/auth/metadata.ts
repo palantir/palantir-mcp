@@ -14,79 +14,37 @@ interface OAuthMetadata {
   grant_types_supported: string[]
 }
 
-// Share pending and successful discovery across clients, isolating injected transports in tests.
-const cache = new WeakMap<typeof fetch, Map<string, Promise<OAuthMetadata>>>()
+const failed = () => new Error('OAuth metadata discovery failed')
 
-export function discoverOAuthMetadata(
+/** RFC 8414 discovery. Root metadata is tried only after a 404 on the Multipass path. */
+export async function discoverOAuthMetadata(
   host: string,
   request: typeof fetch = fetch,
 ): Promise<OAuthMetadata> {
-  let hosts = cache.get(request)
-  if (!hosts) {
-    hosts = new Map()
-    cache.set(request, hosts)
-  }
-  let pending = hosts.get(host)
-  if (!pending) {
-    pending = discover(host, request).catch((error) => {
-      hosts.delete(host)
-      throw error
-    })
-    hosts.set(host, pending)
-  }
-  return pending
-}
-
-class MetadataError extends Error {}
-
-async function discover(host: string, request: typeof fetch): Promise<OAuthMetadata> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 15_000)
-  // Bound both fetch and body consumption, including transports that ignore abort.
-  const aborted = new Promise<never>((_, reject) => {
-    controller.signal.addEventListener('abort', () => reject(new Error('Timeout')), { once: true })
-  })
+  const signal = AbortSignal.timeout(15_000)
+  const paths = [
+    '/.well-known/oauth-authorization-server/multipass',
+    '/.well-known/oauth-authorization-server',
+  ]
   try {
-    const paths = [
-      '/.well-known/oauth-authorization-server/multipass',
-      '/.well-known/oauth-authorization-server',
-    ]
     for (const path of paths) {
-      const response = await Promise.race([
-        request(`${host}${path}`, { signal: controller.signal, redirect: 'error' }),
-        aborted,
-      ])
+      const response = await request(`${host}${path}`, { signal, redirect: 'error' })
       if (!response.ok) {
         discardBody(response)
-        // Only an absent RFC 8414 route permits trying root metadata; never use fixed endpoints.
         if (response.status === 404 && path === paths[0]) continue
-        throw new MetadataError('OAuth metadata discovery failed: authorization server unavailable')
+        throw failed()
       }
-      const value = (await Promise.race([response.json(), aborted])) as Record<
-        string,
-        unknown
-      > | null
-      if (
-        !value ||
-        !['issuer', 'authorization_endpoint', 'token_endpoint'].every(
-          (key) => typeof value[key] === 'string',
-        ) ||
-        !['code_challenge_methods_supported', 'grant_types_supported'].every(
-          (key) =>
-            Array.isArray(value[key]) &&
-            value[key].every((entry: unknown) => typeof entry === 'string'),
-        )
-      )
-        throw new MetadataError(
-          'OAuth metadata discovery failed: invalid authorization server metadata',
-        )
+      const value = (await response.json()) as Record<string, unknown> | null
+      if (!isMetadata(value)) throw failed()
       const metadata = value as unknown as OAuthMetadata
-      if (metadata.issuer !== `${host}/multipass`)
-        throw new MetadataError(
-          'OAuth metadata discovery failed: issuer does not match the configured Multipass issuer',
-        )
-      for (const value of [metadata.authorization_endpoint, metadata.token_endpoint]) {
-        const endpoint = new URL(value)
+      if (metadata.issuer !== `${host}/multipass`) throw failed()
+      for (const endpointValue of [metadata.authorization_endpoint, metadata.token_endpoint]) {
+        let endpoint: URL
+        try {
+          endpoint = new URL(endpointValue)
+        } catch {
+          throw failed()
+        }
         if (
           endpoint.protocol !== 'https:' ||
           endpoint.origin !== new URL(host).origin ||
@@ -94,34 +52,37 @@ async function discover(host: string, request: typeof fetch): Promise<OAuthMetad
           endpoint.password ||
           endpoint.hash
         ) {
-          throw new MetadataError(
-            'OAuth metadata discovery failed: endpoints must use HTTPS on the configured Foundry origin without credentials or fragments',
-          )
+          throw failed()
         }
       }
-      if (!metadata.code_challenge_methods_supported.includes('S256'))
-        throw new MetadataError(
-          'OAuth metadata discovery failed: server must support S256 code challenges',
-        )
+      if (!metadata.code_challenge_methods_supported.includes('S256')) throw failed()
       if (
         !['authorization_code', 'refresh_token'].every((grant) =>
           metadata.grant_types_supported.includes(grant),
         )
-      )
-        throw new MetadataError(
-          'OAuth metadata discovery failed: server must support authorization_code and refresh_token grants',
-        )
+      ) {
+        throw failed()
+      }
       return metadata
     }
-    throw new MetadataError(
-      'OAuth metadata discovery failed: authorization server metadata not found',
-    )
+    throw failed()
   } catch (error) {
-    if (error instanceof MetadataError) throw error
-    throw new Error(
-      'OAuth metadata discovery failed: network, timeout or invalid response; check connectivity and retry login',
-    )
-  } finally {
-    clearTimeout(timer)
+    if (error instanceof Error && error.message === 'OAuth metadata discovery failed') throw error
+    throw failed()
   }
+}
+
+function isMetadata(value: Record<string, unknown> | null): boolean {
+  if (!value) return false
+  if (
+    !['issuer', 'authorization_endpoint', 'token_endpoint'].every(
+      (key) => typeof value[key] === 'string',
+    )
+  ) {
+    return false
+  }
+  return ['code_challenge_methods_supported', 'grant_types_supported'].every(
+    (key) =>
+      Array.isArray(value[key]) && value[key].every((entry: unknown) => typeof entry === 'string'),
+  )
 }

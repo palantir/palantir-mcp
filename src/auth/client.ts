@@ -39,71 +39,49 @@ export function parseGrantedScopes(scope: unknown): string[] | null {
 
 class OAuthTokenRejectedError extends Error {}
 
-/**
- * `minValidityMs` is a refresh preference, not a hard guarantee: a stored token expiring inside the
- * window is refreshed once if a refresh token exists, otherwise kept while it has at least
- * DEFAULT_MIN_VALIDITY_MS left. A refreshed or newly issued token is returned even if its server
- * lifetime is shorter than the window, so a short token lifetime never causes refresh/consent loops.
- */
+/** A stored token inside this window is refreshed or replaced; a newly issued token is kept even if shorter. */
 export interface AcquireOptions {
-  /** Refresh when the stored access token expires within this window. */
-  minValidityMs?: number
   /** The access token a resource server rejected (401); it is never returned again. */
   rejectedAccessToken?: string
   signal?: AbortSignal
 }
 
 export const DEFAULT_MIN_VALIDITY_MS = 60_000
+const CALLBACK_TIMEOUT_MS = 120_000
+const EXCHANGE_TIMEOUT_MS = 15_000
 
-/** Public OAuth lifecycle. No legacy cache, Git token, project broker or FOUNDRY_TOKEN use. */
+/** OAuth acquisition for startup. No legacy cache, Git token, project broker or FOUNDRY_TOKEN use. */
 export class OAuthClient {
+  private metadataPromise?: ReturnType<typeof discoverOAuthMetadata>
   constructor(
     readonly config: OAuthConfig,
     readonly store = new OAuthStore(config),
     private readonly browser = openBrowser,
-    private readonly request: typeof fetch = fetch,
-    private readonly callbackTimeoutMs = 120_000,
-    private readonly exchangeTimeoutMs = 15_000,
+    readonly request: typeof fetch = fetch,
   ) {}
 
-  async login(signal?: AbortSignal): Promise<Credential> {
-    return this.store.locked(() => this.loginLocked(signal), signal)
-  }
-
-  async refresh(signal?: AbortSignal): Promise<Credential> {
-    return this.store.locked(async () => {
-      const previous = await this.store.read()
-      if (!previous?.refreshToken) return this.loginLocked(signal)
-      try {
-        return await this.refreshLocked(previous, signal)
-      } catch (error) {
-        if (!(error instanceof OAuthTokenRejectedError) || signal?.aborted) throw error
-        return this.loginLocked(signal)
-      }
-    }, signal)
-  }
-
-  async logout(signal?: AbortSignal): Promise<void> {
-    await this.store.locked(() => this.store.remove(), signal)
-  }
-
-  async status(signal?: AbortSignal): Promise<Credential | undefined> {
-    return this.store.locked(() => this.store.read(), signal)
+  /** One discovery for this startup. A failure is not reused, so a later attempt can retry. */
+  private discover(): ReturnType<typeof discoverOAuthMetadata> {
+    return (this.metadataPromise ??= discoverOAuthMetadata(this.config.host, this.request).catch(
+      (error: unknown) => {
+        this.metadataPromise = undefined
+        throw error
+      },
+    ))
   }
 
   /**
-   * Return a usable access token: stored, then refreshed, then one browser authorization.
+   * Return a usable access token: stored, then one refresh, then one browser authorization.
    * The lock is held across read/network/write, serializing with the private runtime.
    */
   async acquire(options: AcquireOptions = {}): Promise<Credential> {
     const { signal, rejectedAccessToken } = options
-    const minValidityMs = Math.max(options.minValidityMs ?? 0, DEFAULT_MIN_VALIDITY_MS)
     return this.store.locked(async () => {
       const stored = await this.store.read()
       if (
         stored &&
         stored.accessToken !== rejectedAccessToken &&
-        stored.expiresAt > Date.now() + minValidityMs
+        stored.expiresAt > Date.now() + DEFAULT_MIN_VALIDITY_MS
       )
         return stored
       if (stored?.refreshToken) {
@@ -111,15 +89,7 @@ export class OAuthClient {
           return await this.refreshLocked(stored, signal)
         } catch (error) {
           if (!(error instanceof OAuthTokenRejectedError) || signal?.aborted) throw error
-          // The record is already invalidated; fall through to exactly one consent.
         }
-      } else if (
-        stored &&
-        stored.accessToken !== rejectedAccessToken &&
-        stored.expiresAt > Date.now() + DEFAULT_MIN_VALIDITY_MS
-      ) {
-        // Cannot refresh: a still-valid token is better than consent; the window is a preference.
-        return stored
       } else if (stored) {
         await this.store.remove()
       }
@@ -150,7 +120,7 @@ export class OAuthClient {
 
   private async refreshLocked(previous: Credential, signal?: AbortSignal): Promise<Credential> {
     // Discovery cannot consume a refresh token; keep credentials intact if it fails.
-    await discoverOAuthMetadata(this.config.host, this.request)
+    await this.discover()
     signal?.throwIfAborted()
     // Invalidate before sending: a timeout may mean the server consumed a rotating token.
     // Never replay it automatically after an ambiguous response or failed persistence.
@@ -170,11 +140,11 @@ export class OAuthClient {
     parameters: Record<string, string>,
     signal?: AbortSignal,
   ): Promise<Credential> {
-    const metadata = await discoverOAuthMetadata(this.config.host, this.request)
+    const metadata = await this.discover()
     // Explicit composition works on Node 18; AbortSignal.any requires newer Node releases.
     const controller = new AbortController()
     const abort = () => controller.abort()
-    const timer = setTimeout(abort, this.exchangeTimeoutMs)
+    const timer = setTimeout(abort, EXCHANGE_TIMEOUT_MS)
     signal?.addEventListener('abort', abort, { once: true })
     if (signal?.aborted) abort()
     try {
@@ -193,17 +163,7 @@ export class OAuthClient {
           throw new OAuthTokenRejectedError('OAuth token exchange was rejected')
         throw new Error('OAuth token endpoint unavailable')
       }
-      // The deadline covers body consumption, even if a transport ignores the abort signal.
-      const body = response.json()
-      const value = (await Promise.race([
-        body,
-        new Promise<never>((_, reject) => {
-          if (controller.signal.aborted) reject(new Error('Aborted'))
-          controller.signal.addEventListener('abort', () => reject(new Error('Aborted')), {
-            once: true,
-          })
-        }),
-      ])) as Record<string, unknown>
+      const value = (await response.json()) as Record<string, unknown>
       if (
         !value ||
         typeof value.access_token !== 'string' ||
@@ -245,7 +205,7 @@ export class OAuthClient {
 
   private async authorize(verifier: string, signal?: AbortSignal): Promise<string> {
     signal?.throwIfAborted()
-    const metadata = await discoverOAuthMetadata(this.config.host, this.request)
+    const metadata = await this.discover()
     signal?.throwIfAborted()
     const callback = new URL(this.config.redirect)
     const state = randomBytes(32).toString('base64url')
@@ -303,7 +263,7 @@ export class OAuthClient {
     })
     server.requestTimeout = 5_000
     server.headersTimeout = 5_000
-    const timer = setTimeout(fail, this.callbackTimeoutMs)
+    const timer = setTimeout(fail, CALLBACK_TIMEOUT_MS)
     signal?.addEventListener('abort', fail, { once: true })
     try {
       await new Promise<void>((resolve, failListen) => {
