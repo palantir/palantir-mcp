@@ -25,6 +25,10 @@ export function parseUrl(value: string): URL {
 export function createProgram(): Command {
   const program = new Command()
   program.version(getPackageVersion())
+  program.addHelpText(
+    'after',
+    '\nAuthentication: --auth=legacy (default) or --auth=oauth (Palantir MCP client/callback defaults).\nOptional overrides: --oauth-client-id, --oauth-redirect, --oauth-scopes, --oauth-profile.\nNo automatic fallback between modes. OAuth credentials: palantir-mcp auth <login|refresh|logout|status> --help\n',
+  )
 
   const foundryApiUrlOption = new Option(
     '--foundry-api-url <url>',
