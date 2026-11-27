@@ -25,6 +25,10 @@ export function parseUrl(value: string): URL {
 export function createProgram(): Command {
   const program = new Command()
   program.version(getPackageVersion())
+  program.addHelpText(
+    'after',
+    '\nAuthentication: --auth=legacy (default) or --auth=oauth.\nOptional: --oauth-scopes "<scopes>" (offline_access is added; the registered client and callback are used).\nNo automatic fallback between modes.\n',
+  )
 
   const foundryApiUrlOption = new Option(
     '--foundry-api-url <url>',

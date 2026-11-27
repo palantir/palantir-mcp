@@ -4,6 +4,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  */
 
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fixupPluginRules } from '@eslint/compat'
@@ -73,6 +74,18 @@ export default defineConfig([
 
       'eol-last': ['error', 'always'],
       'license-header/header': ['error', './license-header.txt'],
+    },
+  },
+  {
+    files: ['src/auth/**/*.ts'],
+    rules: {
+      'license-header/header': [
+        'error',
+        readFileSync(new URL('./license-header.txt', import.meta.url), 'utf8')
+          .replace('2025', '2026')
+          .trimEnd()
+          .split('\n'),
+      ],
     },
   },
 ])
