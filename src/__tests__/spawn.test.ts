@@ -7,6 +7,7 @@
 import { spawn } from 'child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { McpLaunchError } from '../errors.js'
 import { spawnMcp } from '../spawn.js'
 
 vi.mock('child_process', () => ({
@@ -24,6 +25,7 @@ describe('spawn', () => {
     it('should spawn npx with correct arguments', () => {
       const mockChild = {
         kill: vi.fn(),
+        on: vi.fn(),
       }
       mockSpawn.mockReturnValue(mockChild)
 
@@ -52,6 +54,7 @@ describe('spawn', () => {
     it('should set correct environment variables', () => {
       const mockChild = {
         kill: vi.fn(),
+        on: vi.fn(),
       }
       mockSpawn.mockReturnValue(mockChild)
 
@@ -73,6 +76,7 @@ describe('spawn', () => {
     it('should preserve existing environment variables', () => {
       const mockChild = {
         kill: vi.fn(),
+        on: vi.fn(),
       }
       mockSpawn.mockReturnValue(mockChild)
 
@@ -98,6 +102,7 @@ describe('spawn', () => {
     it('should register SIGINT signal handler', () => {
       const mockChild = {
         kill: vi.fn(),
+        on: vi.fn(),
       }
       mockSpawn.mockReturnValue(mockChild)
 
@@ -117,6 +122,7 @@ describe('spawn', () => {
     it('should register SIGTERM signal handler', () => {
       const mockChild = {
         kill: vi.fn(),
+        on: vi.fn(),
       }
       mockSpawn.mockReturnValue(mockChild)
 
@@ -131,6 +137,77 @@ describe('spawn', () => {
       spawnMcp(options)
 
       expect(process.listenerCount('SIGTERM')).toBe(originalListenerCount + 1)
+    })
+  })
+
+  describe('child process outcome', () => {
+    const options = {
+      npmRegistry: new URL('https://example.com/npm/'),
+      foundryToken: 'test-token',
+      args: [],
+    }
+
+    function spawnWithHandlers() {
+      const handlers: Record<string, (...callbackArgs: any[]) => void> = {}
+      mockSpawn.mockReturnValue({
+        kill: vi.fn(),
+        on: vi.fn((event: string, handler: (...callbackArgs: any[]) => void) => {
+          handlers[event] = handler
+        }),
+      })
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+      spawnMcp(options)
+      return { handlers, exit }
+    }
+
+    it('should exit with the code the MCP server exited with', () => {
+      const { handlers, exit } = spawnWithHandlers()
+
+      handlers.exit(42, null)
+
+      expect(exit).toHaveBeenCalledWith(42)
+      exit.mockRestore()
+    })
+
+    it('should exit 0 when the MCP server exits cleanly', () => {
+      const { handlers, exit } = spawnWithHandlers()
+
+      handlers.exit(0, null)
+
+      expect(exit).toHaveBeenCalledWith(0)
+      exit.mockRestore()
+    })
+
+    it('should report a signalled death as 128 + signal number', () => {
+      const { handlers, exit } = spawnWithHandlers()
+
+      handlers.exit(null, 'SIGTERM')
+
+      expect(exit).toHaveBeenCalledWith(143)
+      exit.mockRestore()
+    })
+
+    it('should exit non-zero when the child terminates without a code or signal', () => {
+      const { handlers, exit } = spawnWithHandlers()
+
+      handlers.exit(null, null)
+
+      expect(exit).toHaveBeenCalledWith(1)
+      exit.mockRestore()
+    })
+
+    it('should report a failed spawn instead of throwing an unhandled error', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const { handlers, exit } = spawnWithHandlers()
+
+      const cause = Object.assign(new Error('spawn npx ENOENT'), { code: 'ENOENT' })
+      handlers.error(cause)
+
+      expect(consoleError).toHaveBeenCalledWith(expect.any(McpLaunchError))
+      expect(consoleError.mock.calls[0][0].cause).toBe(cause)
+      expect(exit).toHaveBeenCalledWith(1)
+      exit.mockRestore()
+      consoleError.mockRestore()
     })
   })
 })
